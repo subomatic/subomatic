@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod align;
+pub mod ass;
 pub mod cue;
 pub mod microdvd;
 pub mod srt;

@@ -20,6 +20,8 @@ pub enum Format {
     WebVtt,
     /// MicroDVD (`.sub`), frame-based.
     MicroDvd,
+    /// Advanced SubStation Alpha (`.ass`/`.ssa`).
+    Ass,
 }
 
 /// One subtitle entry: a time interval plus its original, untouched payload

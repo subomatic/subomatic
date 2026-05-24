@@ -6,9 +6,12 @@
 //! via the WebAudio API or ffmpeg.wasm). The heavy lifting stays in the shared
 //! Rust core; this layer is just thin glue.
 //!
-//! Subtitle `format` strings are `"srt"`, `"vtt"`, or `"sub"` (case-insensitive).
+//! Subtitle `format` strings are `"srt"`, `"vtt"`, `"sub"`, `"ass"`, or `"ssa"`
+//! (case-insensitive).
 
-use subomatic_core::{microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad};
+use subomatic_core::{
+    ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad,
+};
 use wasm_bindgen::prelude::*;
 
 /// Align `input` (format: `"srt"`, `"vtt"`, or `"sub"`) to a reference
@@ -85,6 +88,8 @@ fn parse(text: &str, format: &str, fps: f64) -> Result<Subtitle, String> {
         vtt::parse(text).map_err(|e| e.to_string())
     } else if format.eq_ignore_ascii_case("sub") {
         Ok(microdvd::parse(text, fps))
+    } else if format.eq_ignore_ascii_case("ass") || format.eq_ignore_ascii_case("ssa") {
+        ass::parse(text).map_err(|e| e.to_string())
     } else {
         Err(format!("unsupported subtitle format: {format:?}"))
     }
@@ -95,6 +100,7 @@ fn serialize(subtitle: &Subtitle, fps: f64) -> String {
         Format::SubRip => srt::serialize(subtitle),
         Format::WebVtt => vtt::serialize(subtitle),
         Format::MicroDvd => microdvd::serialize(subtitle, fps),
+        Format::Ass => ass::serialize(subtitle),
     }
 }
 

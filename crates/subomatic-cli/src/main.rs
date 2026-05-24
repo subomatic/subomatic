@@ -17,14 +17,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
-use subomatic_core::{microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad};
+use subomatic_core::{
+    ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad,
+};
 
 /// Re-time a subtitle to match an audio track or a reference subtitle.
 #[derive(Parser, Debug)]
 #[command(name = "subomatic", version, about)]
 #[command(group(ArgGroup::new("source").required(true).args(["reference", "audio"])))]
 struct Args {
-    /// The out-of-sync subtitle to fix (.srt, .vtt, or .sub).
+    /// The out-of-sync subtitle to fix (.srt, .vtt, .sub, or .ass/.ssa).
     input: PathBuf,
 
     /// Align to a reference subtitle whose timings are correct.
@@ -97,8 +99,9 @@ fn detect_format(path: &Path) -> Result<Format, String> {
         Some("srt") => Ok(Format::SubRip),
         Some("vtt") => Ok(Format::WebVtt),
         Some("sub") => Ok(Format::MicroDvd),
+        Some("ass") | Some("ssa") => Ok(Format::Ass),
         other => Err(format!(
-            "unsupported subtitle extension {other:?} (expected .srt, .vtt, or .sub)"
+            "unsupported subtitle extension {other:?} (expected .srt, .vtt, .sub, .ass, or .ssa)"
         )),
     }
 }
@@ -118,6 +121,7 @@ fn parse(format: Format, text: &str, fps: f64) -> Result<Subtitle, Box<dyn Error
         Format::SubRip => srt::parse(text)?,
         Format::WebVtt => vtt::parse(text)?,
         Format::MicroDvd => microdvd::parse(text, fps),
+        Format::Ass => ass::parse(text)?,
     })
 }
 
@@ -126,6 +130,7 @@ fn serialize(format: Format, subtitle: &Subtitle, fps: f64) -> String {
         Format::SubRip => srt::serialize(subtitle),
         Format::WebVtt => vtt::serialize(subtitle),
         Format::MicroDvd => microdvd::serialize(subtitle, fps),
+        Format::Ass => ass::serialize(subtitle),
     }
 }
 
