@@ -21,12 +21,14 @@ pub mod align;
 pub mod cue;
 pub mod microdvd;
 pub mod srt;
+pub mod vad;
 pub mod vtt;
 
 pub use align::{
     align_offsets, best_alignment, best_global_offset, AlignParams, Alignment, SearchRange,
 };
 pub use cue::{Cue, Format, Subtitle};
+pub use vad::{EnergyVad, Vad};
 
 /// A half-open time interval in integer milliseconds: `[start, end)`.
 ///
