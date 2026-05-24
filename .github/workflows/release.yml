@@ -1,0 +1,41 @@
+name: Release binaries
+
+# Builds unsigned `subomatic` CLI binaries for the desktop targets on a version
+# tag (or manual run). Signing / notarization / store submission are separate,
+# platform-specific steps the maintainer performs with their own certificates.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the CLI
+        run: cargo build --release -p subomatic-cli --target ${{ matrix.target }}
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subomatic-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            target/${{ matrix.target }}/release/subomatic
+            target/${{ matrix.target }}/release/subomatic.exe
