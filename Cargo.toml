@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/subomatic-cli", "crates/subomatic-core"]
+members = ["crates/subomatic-cli", "crates/subomatic-core", "crates/subomatic-wasm"]
 
 [workspace.package]
 edition = "2021"

@@ -27,5 +27,5 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --all-features
-      - name: WASM build (core stays WASM-clean)
-        run: cargo build -p subomatic-core --target wasm32-unknown-unknown
+      - name: WASM build (core + bindings stay WASM-clean)
+        run: cargo build -p subomatic-core -p subomatic-wasm --target wasm32-unknown-unknown
