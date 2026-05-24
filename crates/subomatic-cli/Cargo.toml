@@ -1,0 +1,15 @@
+[package]
+name = "subomatic-cli"
+version = "0.0.0"
+description = "Command-line subtitle synchronizer (Subomatic)."
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "subomatic"
+path = "src/main.rs"
+
+[dependencies]
+subomatic-core = { path = "../subomatic-core" }
+clap = { version = "4", features = ["derive"] }

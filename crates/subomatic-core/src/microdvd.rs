@@ -3,11 +3,12 @@
 //!
 //! MicroDVD is frame-based — `{startframe}{endframe}text` with `|` separating
 //! text lines — so both parsing and serializing need the video frame rate to
-//! convert frames↔milliseconds. A *leading* `{1}{1}fps` declaration line, if
-//! present, is consumed and used as the rate.
+//! convert frames↔milliseconds.
 //!
-//! First-cut limitations: a consumed `{1}{1}fps` declaration is not re-emitted,
-//! and `parse_line` trims surrounding whitespace from each record.
+//! A *leading* `{1}{1}fps` declaration line, if present, is consumed, preserved
+//! verbatim in [`Subtitle::header`], and re-emitted; serialization uses that
+//! declared rate, falling back to the supplied `fps` only when the file declares
+//! none. Lines that don't match `{a}{b}text` are skipped.
 
 use crate::cue::{Cue, Format, Subtitle};
 
@@ -23,14 +24,24 @@ fn sane_fps(fps: f64) -> f64 {
     }
 }
 
-/// Parse MicroDVD text. `fps` converts frames to milliseconds; a *leading*
-/// `{1}{1}fps` declaration line in the file overrides it. Lines that don't match
-/// the `{a}{b}text` shape are skipped.
+/// The frame rate declared by a `{1}{1}fps` header line, if any.
+fn fps_from_header(header: &str) -> Option<f64> {
+    let (start, end, text) = parse_line(header)?;
+    if start != 1 || end != 1 {
+        return None; // only a genuine {1}{1}fps record declares the rate
+    }
+    let rate: f64 = text.trim().parse().ok()?;
+    (rate.is_finite() && rate > 0.0).then_some(rate)
+}
+
+/// Parse MicroDVD text. `fps` converts frames to milliseconds; a leading
+/// `{1}{1}fps` declaration overrides it and is preserved in the header.
 pub fn parse(input: &str, fps: f64) -> Subtitle {
     let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
 
     let mut rate = sane_fps(fps);
+    let mut header = String::new();
     let mut cues = Vec::new();
 
     for line in normalized.lines() {
@@ -39,10 +50,11 @@ pub fn parse(input: &str, fps: f64) -> Subtitle {
         };
         // Only a LEADING {1}{1}<number> line (before any cue) is a rate
         // declaration; the same shape later is a real one-frame cue.
-        if cues.is_empty() && start_frame == 1 && end_frame == 1 {
+        if cues.is_empty() && header.is_empty() && start_frame == 1 && end_frame == 1 {
             if let Ok(declared) = text.trim().parse::<f64>() {
                 if declared.is_finite() && declared > 0.0 {
                     rate = declared;
+                    header = line.to_string(); // preserve the declaration verbatim
                     continue;
                 }
             }
@@ -56,15 +68,20 @@ pub fn parse(input: &str, fps: f64) -> Subtitle {
 
     Subtitle {
         format: Format::MicroDvd,
-        header: String::new(),
+        header,
         cues,
     }
 }
 
-/// Serialize a [`Subtitle`] to MicroDVD. `fps` converts milliseconds to frames.
+/// Serialize a [`Subtitle`] to MicroDVD. A frame rate declared in the header is
+/// authoritative; otherwise `fps` is used.
 pub fn serialize(sub: &Subtitle, fps: f64) -> String {
-    let rate = sane_fps(fps);
+    let rate = fps_from_header(&sub.header).unwrap_or_else(|| sane_fps(fps));
     let mut out = String::new();
+    if !sub.header.is_empty() {
+        out.push_str(&sub.header);
+        out.push('\n');
+    }
     for cue in &sub.cues {
         out.push_str(&format!(
             "{{{}}}{{{}}}{}\n",
@@ -128,8 +145,20 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_declared_fps() {
+        // The declared 25 fps must drive serialization, not the (different) fallback.
+        let sub = parse("{1}{1}25.000\n{25}{50}Hi\n", DEFAULT_FPS);
+        assert_eq!(sub.cues[0].start_ms, 1_000);
+        let out = serialize(&sub, DEFAULT_FPS);
+        assert!(out.contains("{1}{1}25.000"), "declaration lost: {out}");
+        assert!(
+            out.contains("{25}{50}Hi"),
+            "wrong frames (must use declared fps): {out}"
+        );
+    }
+
+    #[test]
     fn frame_one_record_after_a_cue_is_not_a_declaration() {
-        // {1}{1}<number> appearing after a real cue is a normal cue, not fps.
         let sub = parse("{25}{50}Hi\n{1}{1}123\n", 25.0);
         assert_eq!(sub.cues.len(), 2);
         assert_eq!(sub.cues[1].payload, "123");
@@ -137,8 +166,14 @@ mod tests {
 
     #[test]
     fn non_finite_fps_falls_back_to_default() {
-        // Infinity passed the old `fps > 0.0` guard and collapsed times to 0.
         let sub = parse("{24}{48}Hi\n", f64::INFINITY);
         assert!(sub.cues[0].start_ms > 0);
+    }
+
+    #[test]
+    fn header_fps_only_from_a_one_one_record() {
+        assert_eq!(fps_from_header("{1}{1}25"), Some(25.0));
+        assert_eq!(fps_from_header("{5}{9}30"), None);
+        assert_eq!(fps_from_header("garbage"), None);
     }
 }
