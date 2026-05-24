@@ -106,14 +106,25 @@ One unified dynamic program, not separate alass/ffsubsync engines.
   port alass's GPL source. _(Not legal advice; an IP review before a paid launch
   is still worth it.)_
 
-## Build order
+## Build order & status
 
-1. **`subomatic-core`** engine — **done**: cue model, SRT round-trip, the unified
-   piecewise DP (`align_offsets` + `split_penalty`), the fps-ratio scan
-   (`best_alignment`), and the high-level `sync`; 19 tests (shift / split /
-   fps-skew / end-to-end). _Remaining:_ more Tier-1 formats (ASS/SSA, WebVTT,
-   MicroDVD) and the `Vad` trait + `earshot` adapter.
-2. Native decode adapter (ffmpeg-next) + a `subomatic` CLI binary; wire `earshot`
-   VAD.
-3. ffmpeg.wasm web adapter + browser app (to replace subsync.online).
-4. Packaging: Mac App Store, Windows arm64/x64. OpenSubtitles fetch.
+**Done (reviewed + CI-green):**
+1. **`subomatic-core`** — cue model; **SRT / WebVTT / MicroDVD** parse+serialize;
+   the unified piecewise DP (`align_offsets` + `split_penalty`), the fps-ratio
+   scan (`best_alignment`), and `sync`; the `Vad` trait + a pure-Rust `EnergyVad`.
+2. **`subomatic-cli`** (`subomatic`) — `--reference` (sub-to-sub) and `--audio`
+   (WAV → VAD → sync) modes, with a dependency-free WAV decoder.
+3. **`subomatic-wasm`** — wasm-bindgen `sync_to_reference` / `sync_to_audio`
+   (wasm32 build gated in CI).
+
+**Remaining — achievable in-repo:** ASS/SSA format; OpenSubtitles REST client;
+a browser UI over the wasm bindings (the subsync.online replacement); an
+`earshot` VAD adapter.
+
+**Remaining — platform-bound (needs the user's machines/accounts):**
+- The **ffmpeg-LGPL decode adapter** (compressed audio in MKV/MP4/…), built for
+  the 5 targets — needs ffmpeg dev libs + cross toolchains.
+- **Mac App Store** signing + submission; **Windows arm64/x64** signed packaging.
+- Web-app **deployment**.
+
+(WAV covers uncompressed audio today; ffmpeg extends it to everything else.)
