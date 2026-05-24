@@ -108,9 +108,11 @@ One unified dynamic program, not separate alass/ffsubsync engines.
 
 ## Build order
 
-1. **`subomatic-core`** — cue model + SRT round-trip + alignment (global-shift
-   `split_penalty = ∞` first → splits → fps scan), with synthetic tests
-   (shift / split / fps-skew). ← _in progress_
+1. **`subomatic-core`** engine — **done**: cue model, SRT round-trip, the unified
+   piecewise DP (`align_offsets` + `split_penalty`), the fps-ratio scan
+   (`best_alignment`), and the high-level `sync`; 19 tests (shift / split /
+   fps-skew / end-to-end). _Remaining:_ more Tier-1 formats (ASS/SSA, WebVTT,
+   MicroDVD) and the `Vad` trait + `earshot` adapter.
 2. Native decode adapter (ffmpeg-next) + a `subomatic` CLI binary; wire `earshot`
    VAD.
 3. ffmpeg.wasm web adapter + browser app (to replace subsync.online).

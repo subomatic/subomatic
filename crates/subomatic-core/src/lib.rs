@@ -11,6 +11,9 @@
 //! - [`cue`] — the format-agnostic subtitle model ([`Cue`], [`Subtitle`]).
 //! - [`srt`] — SubRip parse/serialize (the first Tier-1 format).
 //! - [`align`] — the alignment engine that finds the timing correction.
+//!
+//! [`sync`] is the high-level entry point: subtitle + reference spans in, a
+//! re-timed subtitle out.
 
 #![forbid(unsafe_code)]
 
@@ -18,6 +21,9 @@ pub mod align;
 pub mod cue;
 pub mod srt;
 
+pub use align::{
+    align_offsets, best_alignment, best_global_offset, AlignParams, Alignment, SearchRange,
+};
 pub use cue::{Cue, Format, Subtitle};
 
 /// A half-open time interval in integer milliseconds: `[start, end)`.
@@ -64,4 +70,18 @@ impl Span {
             end: self.end.saturating_add(delta),
         }
     }
+}
+
+/// Synchronize `subtitle` to a reference activity signal (voice-activity spans,
+/// or a known-good subtitle's cue spans), returning a new, re-timed subtitle.
+///
+/// Searches common frame-rate ratios and a per-cue offset alignment (see
+/// [`best_alignment`]), then applies the resulting warp — leaving every cue's
+/// payload untouched.
+pub fn sync(subtitle: &Subtitle, reference: &[Span], params: &AlignParams) -> Subtitle {
+    let cues = subtitle.spans();
+    let alignment = align::best_alignment(reference, &cues, params);
+    let mut out = subtitle.clone();
+    out.apply_alignment(&alignment);
+    out
 }

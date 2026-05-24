@@ -5,6 +5,7 @@
 //! cues, each a time interval plus an *opaque* payload (text, styling, …) that
 //! the engine never inspects and never alters — only `start_ms`/`end_ms` move.
 
+use crate::align::{scale_time, Alignment};
 use crate::Span;
 
 /// Subtitle container formats Subomatic round-trips.
@@ -56,6 +57,17 @@ impl Subtitle {
             cue.end_ms = cue.end_ms.saturating_add(delta_ms);
         }
     }
+
+    /// Apply an [`Alignment`] in place: scale every cue by `fps_ratio`, then add
+    /// its per-cue offset (saturating). Cues without a matching offset keep the
+    /// scaled time. Payloads are never touched.
+    pub fn apply_alignment(&mut self, alignment: &Alignment) {
+        for (i, cue) in self.cues.iter_mut().enumerate() {
+            let offset = alignment.offsets.get(i).copied().unwrap_or(0);
+            cue.start_ms = scale_time(cue.start_ms, alignment.fps_ratio).saturating_add(offset);
+            cue.end_ms = scale_time(cue.end_ms, alignment.fps_ratio).saturating_add(offset);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -75,5 +87,36 @@ mod tests {
         sub.shift_all(1_000); // would overflow without saturation
         assert_eq!(sub.cues[0].start_ms, i64::MAX);
         assert_eq!(sub.cues[0].end_ms, i64::MAX);
+    }
+
+    #[test]
+    fn apply_alignment_scales_then_offsets_and_keeps_payload() {
+        let mut sub = Subtitle {
+            format: Format::SubRip,
+            cues: vec![
+                Cue {
+                    start_ms: 1_000,
+                    end_ms: 2_000,
+                    payload: "a".into(),
+                },
+                Cue {
+                    start_ms: 10_000,
+                    end_ms: 11_000,
+                    payload: "b".into(),
+                },
+            ],
+        };
+        let alignment = Alignment {
+            fps_ratio: 2.0,
+            offsets: vec![100, -100],
+            score: 0,
+        };
+        sub.apply_alignment(&alignment);
+        assert_eq!(sub.cues[0].start_ms, 2_100);
+        assert_eq!(sub.cues[0].end_ms, 4_100);
+        assert_eq!(sub.cues[1].start_ms, 19_900);
+        assert_eq!(sub.cues[1].end_ms, 21_900);
+        assert_eq!(sub.cues[0].payload, "a");
+        assert_eq!(sub.cues[1].payload, "b");
     }
 }
