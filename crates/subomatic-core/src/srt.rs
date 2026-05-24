@@ -55,6 +55,7 @@ pub fn parse(input: &str) -> Result<Subtitle, SrtError> {
 
     Ok(Subtitle {
         format: Format::SubRip,
+        header: String::new(),
         cues,
     })
 }

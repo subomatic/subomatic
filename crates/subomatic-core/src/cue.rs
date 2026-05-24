@@ -16,10 +16,14 @@ use crate::Span;
 pub enum Format {
     /// SubRip (`.srt`).
     SubRip,
-    // Planned Tier 1: SubStation Alpha (.ass/.ssa), WebVTT (.vtt), MicroDVD (.sub).
+    /// WebVTT (`.vtt`).
+    WebVtt,
+    /// MicroDVD (`.sub`), frame-based.
+    MicroDvd,
 }
 
-/// One subtitle entry: a time interval plus its original, untouched payload.
+/// One subtitle entry: a time interval plus its original, untouched payload
+/// (the cue's text/body, verbatim — the engine only moves the timing).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cue {
     pub start_ms: i64,
@@ -29,16 +33,27 @@ pub struct Cue {
 }
 
 impl Cue {
+    /// Convenience constructor.
+    pub fn new(start_ms: i64, end_ms: i64, payload: impl Into<String>) -> Self {
+        Cue {
+            start_ms,
+            end_ms,
+            payload: payload.into(),
+        }
+    }
+
     /// This cue's time interval, as seen by the alignment engine.
     pub fn span(&self) -> Span {
         Span::new(self.start_ms, self.end_ms)
     }
 }
 
-/// A parsed subtitle: its source format plus its ordered cues.
+/// A parsed subtitle: its source format, an opaque format preamble (e.g. the
+/// `WEBVTT` block — empty for SubRip/MicroDVD), and its ordered cues.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Subtitle {
     pub format: Format,
+    pub header: String,
     pub cues: Vec<Cue>,
 }
 
@@ -78,11 +93,8 @@ mod tests {
     fn shift_all_saturates_instead_of_overflowing() {
         let mut sub = Subtitle {
             format: Format::SubRip,
-            cues: vec![Cue {
-                start_ms: i64::MAX - 10,
-                end_ms: i64::MAX - 5,
-                payload: "x".into(),
-            }],
+            header: String::new(),
+            cues: vec![Cue::new(i64::MAX - 10, i64::MAX - 5, "x")],
         };
         sub.shift_all(1_000); // would overflow without saturation
         assert_eq!(sub.cues[0].start_ms, i64::MAX);
@@ -93,18 +105,8 @@ mod tests {
     fn apply_alignment_scales_then_offsets_and_keeps_payload() {
         let mut sub = Subtitle {
             format: Format::SubRip,
-            cues: vec![
-                Cue {
-                    start_ms: 1_000,
-                    end_ms: 2_000,
-                    payload: "a".into(),
-                },
-                Cue {
-                    start_ms: 10_000,
-                    end_ms: 11_000,
-                    payload: "b".into(),
-                },
-            ],
+            header: String::new(),
+            cues: vec![Cue::new(1_000, 2_000, "a"), Cue::new(10_000, 11_000, "b")],
         };
         let alignment = Alignment {
             fps_ratio: 2.0,

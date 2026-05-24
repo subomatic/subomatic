@@ -19,7 +19,9 @@
 
 pub mod align;
 pub mod cue;
+pub mod microdvd;
 pub mod srt;
+pub mod vtt;
 
 pub use align::{
     align_offsets, best_alignment, best_global_offset, AlignParams, Alignment, SearchRange,
