@@ -27,13 +27,19 @@ One shared Rust core targets a CLI, the browser (WASM), and (later) desktop apps
 ## CLI
 
 ```sh
-cargo run -p subomatic-cli -- late.srt --reference good.srt -o fixed.srt
-cargo run -p subomatic-cli -- late.srt --audio movie.wav -o fixed.srt
+# Re-time a subtitle:
+cargo run -p subomatic-cli -- sync late.srt --reference good.srt -o fixed.srt
+cargo run -p subomatic-cli -- sync late.srt --audio movie.wav -o fixed.srt
+
+# Fetch from OpenSubtitles (API key + account via flags or env vars):
+cargo run -p subomatic-cli -- fetch --query "the matrix" --languages en \
+  --api-key "$OPENSUBTITLES_API_KEY"
 ```
 
-`--reference` aligns to a known-good subtitle; `--audio` aligns to a WAV track's
-speech. `--split-penalty <ms>` enables piecewise shifts; `--fps` sets the rate
-for MicroDVD.
+`sync --reference` aligns to a known-good subtitle; `sync --audio` aligns to a
+WAV track's speech (`--split-penalty <ms>` enables piecewise shifts, `--fps`
+sets the MicroDVD rate). `fetch` searches OpenSubtitles and downloads the
+most-downloaded match.
 
 ## Web app
 
