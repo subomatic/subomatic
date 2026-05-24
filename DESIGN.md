@@ -109,17 +109,18 @@ One unified dynamic program, not separate alass/ffsubsync engines.
 ## Build order & status
 
 **Done (reviewed + CI-green):**
-1. **`subomatic-core`** — cue model; **SRT / WebVTT / MicroDVD** parse+serialize;
-   the unified piecewise DP (`align_offsets` + `split_penalty`), the fps-ratio
-   scan (`best_alignment`), and `sync`; the `Vad` trait + a pure-Rust `EnergyVad`.
+1. **`subomatic-core`** — cue model; **SRT / WebVTT / MicroDVD / ASS-SSA**
+   parse+serialize; the unified piecewise DP (`align_offsets` + `split_penalty`),
+   the fps-ratio scan (`best_alignment`), and `sync`; the `Vad` trait + a
+   pure-Rust `EnergyVad`.
 2. **`subomatic-cli`** (`subomatic`) — `--reference` (sub-to-sub) and `--audio`
    (WAV → VAD → sync) modes, with a dependency-free WAV decoder.
-3. **`subomatic-wasm`** — wasm-bindgen `sync_to_reference` / `sync_to_audio`
-   (wasm32 build gated in CI).
+3. **`subomatic-wasm`** + **`web/`** — wasm-bindgen bindings and a fully
+   client-side browser app (the subsync.online replacement); WebAudio decodes the
+   media in-page. The wasm32 build is gated in CI.
 
-**Remaining — achievable in-repo:** ASS/SSA format; OpenSubtitles REST client;
-a browser UI over the wasm bindings (the subsync.online replacement); an
-`earshot` VAD adapter.
+**Remaining — achievable in-repo:** an OpenSubtitles REST fetch client; an
+`earshot` VAD adapter (needs a 16 kHz resampler).
 
 **Remaining — platform-bound (needs the user's machines/accounts):**
 - The **ffmpeg-LGPL decode adapter** (compressed audio in MKV/MP4/…), built for
