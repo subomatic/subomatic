@@ -118,14 +118,18 @@ One unified dynamic program, not separate alass/ffsubsync engines.
 3. **`subomatic-wasm`** + **`web/`** — wasm-bindgen bindings and a fully
    client-side browser app (the subsync.online replacement); WebAudio decodes the
    media in-page. The wasm32 build is gated in CI.
+4. **`subomatic-opensubtitles`** — native OpenSubtitles REST client (search /
+   login / download); request-shaping and response-parsing unit-tested.
+5. A GitHub Pages **deploy workflow** (`.github/workflows/pages.yml`) for the web app.
 
-**Remaining — achievable in-repo:** an OpenSubtitles REST fetch client; an
-`earshot` VAD adapter (needs a 16 kHz resampler).
+**Remaining — achievable in-repo:** wire the OpenSubtitles client into the CLI
+(a fetch-UX decision); an `earshot` VAD adapter (needs a 16 kHz resampler).
 
 **Remaining — platform-bound (needs the user's machines/accounts):**
 - The **ffmpeg-LGPL decode adapter** (compressed audio in MKV/MP4/…), built for
   the 5 targets — needs ffmpeg dev libs + cross toolchains.
 - **Mac App Store** signing + submission; **Windows arm64/x64** signed packaging.
-- Web-app **deployment**.
+- Web-app: enable GitHub Pages (Settings → Pages → "GitHub Actions") and run the
+  deploy workflow — the build is already automated.
 
 (WAV covers uncompressed audio today; ffmpeg extends it to everything else.)
