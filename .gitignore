@@ -2,6 +2,9 @@
 **/*.rs.bk
 .DS_Store
 
+# Generated wasm bundle for the web app (built with wasm-pack)
+/web/pkg
+
 # Local Claude Code config — not part of the project
 CLAUDE.md
 .claude/

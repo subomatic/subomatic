@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subomatic — automatic subtitle sync</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Subomatic</h1>
+      <p class="tagline">
+        Re-time an out-of-sync subtitle — to a reference subtitle, or to a video
+        or audio track's speech. Everything runs in your browser; nothing is
+        uploaded.
+      </p>
+
+      <form id="sync-form">
+        <label class="field">
+          <span>Subtitle to fix</span>
+          <input type="file" id="subtitle" accept=".srt,.vtt,.sub,.ass,.ssa" required />
+        </label>
+
+        <fieldset>
+          <legend>Sync against</legend>
+          <label>
+            <input type="radio" name="mode" value="audio" checked />
+            A video or audio file (its speech)
+          </label>
+          <label>
+            <input type="radio" name="mode" value="reference" />
+            A reference subtitle (correct timings)
+          </label>
+        </fieldset>
+
+        <label class="field" id="audio-field">
+          <span>Video / audio file</span>
+          <input type="file" id="audio" accept="audio/*,video/*" />
+        </label>
+
+        <label class="field hidden" id="reference-field">
+          <span>Reference subtitle</span>
+          <input type="file" id="reference" accept=".srt,.vtt,.sub,.ass,.ssa" />
+        </label>
+
+        <label class="field">
+          <span>Frame rate (MicroDVD <code>.sub</code> only)</span>
+          <input type="number" id="fps" value="23.976" step="0.001" min="0.001" />
+        </label>
+
+        <button type="submit" id="run">Sync</button>
+      </form>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
