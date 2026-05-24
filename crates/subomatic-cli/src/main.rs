@@ -1,27 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `subomatic` — command-line subtitle synchronizer.
 //!
-//! Sub-to-sub mode: re-time an out-of-sync subtitle to match a reference
-//! subtitle whose timings are correct. (Audio-based sync arrives with the
-//! decode layer.)
+//! Two modes (pick one):
+//! - `--audio track.wav`: detect speech in the audio (voice activity) and align
+//!   the subtitle to it.
+//! - `--reference good.srt`: align to a reference subtitle whose timings are
+//!   already correct (sub-to-sub).
+//!
+//! Audio currently accepts uncompressed WAV; compressed formats (MKV/MP4/…)
+//! arrive with the ffmpeg-LGPL decode adapter.
+
+mod wav;
 
 use std::error::Error;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use clap::Parser;
-use subomatic_core::{microdvd, srt, sync, vtt, AlignParams, Format, Subtitle};
+use clap::{ArgGroup, Parser};
+use subomatic_core::{microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad};
 
-/// Re-time a subtitle to match a reference subtitle.
+/// Re-time a subtitle to match an audio track or a reference subtitle.
 #[derive(Parser, Debug)]
 #[command(name = "subomatic", version, about)]
+#[command(group(ArgGroup::new("source").required(true).args(["reference", "audio"])))]
 struct Args {
     /// The out-of-sync subtitle to fix (.srt, .vtt, or .sub).
     input: PathBuf,
 
-    /// A reference subtitle whose timings are correct.
+    /// Align to a reference subtitle whose timings are correct.
     #[arg(short, long)]
-    reference: PathBuf,
+    reference: Option<PathBuf>,
+
+    /// Align to the speech in a WAV audio track.
+    #[arg(short, long)]
+    audio: Option<PathBuf>,
 
     /// Where to write the synced subtitle (default: stdout).
     #[arg(short, long)]
@@ -40,14 +52,10 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let input_text = std::fs::read_to_string(&args.input)?;
-    let reference_text = std::fs::read_to_string(&args.reference)?;
-
     let format = detect_format(&args.input)?;
-    let subtitle = parse(format, &input_text, args.fps)?;
+    let subtitle = parse(format, &std::fs::read_to_string(&args.input)?, args.fps)?;
 
-    let reference = parse(detect_format(&args.reference)?, &reference_text, args.fps)?;
-    let reference_spans = reference.spans();
+    let reference_spans = reference_spans(&args)?;
 
     let params = AlignParams {
         split_penalty: args.split_penalty.unwrap_or(i64::MAX),
@@ -62,6 +70,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => std::io::stdout().lock().write_all(output_text.as_bytes())?,
     }
     Ok(())
+}
+
+/// Build the reference activity spans from whichever source was given (the clap
+/// group guarantees exactly one of `--audio` / `--reference`).
+fn reference_spans(args: &Args) -> Result<Vec<subomatic_core::Span>, Box<dyn Error>> {
+    if let Some(audio) = &args.audio {
+        let pcm = wav::decode(&std::fs::read(audio)?)?;
+        Ok(EnergyVad::default().detect(&pcm.samples, pcm.sample_rate))
+    } else if let Some(reference) = &args.reference {
+        let text = std::fs::read_to_string(reference)?;
+        Ok(parse(detect_format(reference)?, &text, args.fps)?.spans())
+    } else {
+        Err("no sync source: pass --audio or --reference".into())
+    }
 }
 
 /// Pick a subtitle format from a file extension.
