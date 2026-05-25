@@ -93,14 +93,17 @@ One unified dynamic program, not separate alass/ffsubsync engines.
 
 ## VAD
 
-- alass uses `webrtc-vad` (libfvad, C); ffsubsync defaults to WebRTC VAD too —
-  the proven bar.
-- **Decision: `earshot`** — a pure-Rust reimplementation of the WebRTC VAD
-  algorithm (no_std-capable, ~100 KiB, zero C) → alass-grade detection while the
-  core stays pure-Rust / WASM-clean.
-- VAD lives behind a `trait Vad`; Silero (ML/ONNX) can plug in later if accuracy
-  demands. VAD only matters on the real-audio path; synthetic core tests feed
-  reference spans directly.
+- The default **`EnergyVad`** is a dependency-free RMS-energy detector — crude but
+  enough to seed alignment, and it keeps the core dependency-free.
+- **`EarshotVad`** (behind the `earshot` feature) wraps the pure-Rust
+  [`earshot`](https://github.com/pykeio/earshot) crate — a fast FFT + mel-feature
+  neural voice detector, FFI-free so the core stays WASM-clean. Sharper than
+  energy on real speech. `earshot` wants 16 kHz / 256-sample frames, so the
+  adapter resamples to 16 kHz first (timeline-preserving). The CLI picks between
+  them with `sync --audio --vad energy|earshot` (default `energy`).
+- VAD lives behind a `trait Vad`, so another detector (e.g. Silero ML/ONNX) can
+  plug in later. VAD only matters on the real-audio path; synthetic core tests
+  feed reference spans directly.
 
 ## Licensing & ownership
 
@@ -138,9 +141,10 @@ One unified dynamic program, not separate alass/ffsubsync engines.
    login / download); request-shaping and response-parsing unit-tested.
 5. A GitHub Pages **deploy workflow** (`.github/workflows/pages.yml`) for the web app.
 
-**Remaining — achievable in-repo (optional enhancements):** an `earshot` VAD
-adapter for sharper speech detection than the working `EnergyVad` (needs a 16 kHz
-resampler).
+**Remaining — achievable in-repo:** minor polish only (e.g. a `[workspace.lints]`
+table to enforce zero-warnings locally, not just in CI). The engine, all four
+Tier-1 formats, both VADs (`EnergyVad` + the optional `EarshotVad`), libav decode,
+the CLI, the WASM bindings, and the web app are all done.
 
 **Remaining — platform-bound (needs the user's machines/accounts):**
 - **Distribution builds of libav:** the decode itself is done and tested, but

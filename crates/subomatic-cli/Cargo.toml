@@ -25,3 +25,10 @@ ffmpeg-the-third = { version = "1.2", default-features = false, features = [
     "format",
     "software-resampling",
 ] }
+
+[features]
+# `earshot` (on by default) adds the sharper EarshotVad alongside the
+# dependency-free EnergyVad, exposed as `sync --vad earshot`. It's pure Rust;
+# build with `--no-default-features` to drop it for a leaner, EnergyVad-only CLI.
+default = ["earshot"]
+earshot = ["subomatic-core/earshot"]

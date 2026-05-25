@@ -88,7 +88,8 @@ subomatic fetch --query "the matrix" --languages en
 
 ## Optional polish (in-repo, no external resources)
 
-- An `earshot` (WebRTC-VAD) implementation of `subomatic_core::Vad` for sharper
-  speech detection than `EnergyVad` (needs a 16 kHz resampler).
 - A `[workspace.lints]` table to enforce the zero-warnings policy in local builds,
   not just CI.
+
+(The sharper `earshot` voice-activity detector is already implemented — build the
+CLI and run `subomatic sync --audio <file> --vad earshot`.)

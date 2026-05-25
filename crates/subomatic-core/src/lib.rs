@@ -29,6 +29,8 @@ pub use align::{
     align_offsets, best_alignment, best_global_offset, AlignParams, Alignment, SearchRange,
 };
 pub use cue::{Cue, Format, Subtitle};
+#[cfg(feature = "earshot")]
+pub use vad::EarshotVad;
 pub use vad::{EnergyVad, Vad};
 
 /// A half-open time interval in integer milliseconds: `[start, end)`.

@@ -13,7 +13,9 @@ use std::error::Error;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use clap::{ArgGroup, Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+#[cfg(feature = "earshot")]
+use subomatic_core::EarshotVad;
 use subomatic_core::{
     ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Span, Subtitle, Vad,
 };
@@ -34,6 +36,17 @@ enum Command {
     Fetch(FetchArgs),
 }
 
+/// Which voice-activity detector to use for `--audio`.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum VadKind {
+    /// Dependency-free energy-threshold detector.
+    #[default]
+    Energy,
+    /// Sharper neural detector (the pure-Rust `earshot` crate); better on real speech.
+    #[cfg(feature = "earshot")]
+    Earshot,
+}
+
 #[derive(Args)]
 #[command(group(ArgGroup::new("source").required(true).args(["reference", "audio"])))]
 struct SyncArgs {
@@ -47,6 +60,10 @@ struct SyncArgs {
     /// Align to the speech in an audio or video file (mp4/mkv/mp3/aac/flac/…).
     #[arg(short, long)]
     audio: Option<PathBuf>,
+
+    /// Voice-activity detector to use with `--audio`.
+    #[arg(long, value_enum, default_value_t = VadKind::Energy)]
+    vad: VadKind,
 
     /// Where to write the synced subtitle (default: stdout).
     #[arg(short, long)]
@@ -127,7 +144,11 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn Error>> {
 fn sync_source_spans(args: &SyncArgs) -> Result<Vec<Span>, Box<dyn Error>> {
     if let Some(audio) = &args.audio {
         let (samples, sample_rate) = decode::decode(audio)?;
-        Ok(EnergyVad::default().detect(&samples, sample_rate))
+        Ok(match args.vad {
+            VadKind::Energy => EnergyVad::default().detect(&samples, sample_rate),
+            #[cfg(feature = "earshot")]
+            VadKind::Earshot => EarshotVad::default().detect(&samples, sample_rate),
+        })
     } else if let Some(reference) = &args.reference {
         let text = std::fs::read_to_string(reference)?;
         Ok(parse(detect_format(reference)?, &text, args.fps)?.spans())

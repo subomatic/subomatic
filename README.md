@@ -39,9 +39,10 @@ cargo run -p subomatic-cli -- fetch --query "the matrix" --languages en \
 
 `sync --reference` aligns to a known-good subtitle; `sync --audio` aligns to a
 track's speech — libav (linked in-process, no `ffmpeg` subprocess) decodes any
-codec it supports, including AC-3 and DTS (`--split-penalty <ms>` enables
-piecewise shifts, `--fps` sets the MicroDVD rate). `fetch` searches OpenSubtitles
-and downloads the most-downloaded match.
+codec it supports, including AC-3 and DTS. Flags: `--vad energy|earshot` picks the
+voice-activity detector (earshot is a sharper neural detector), `--split-penalty
+<ms>` enables piecewise shifts, `--fps` sets the MicroDVD rate. `fetch` searches
+OpenSubtitles and downloads the most-downloaded match.
 
 ## Web app
 
@@ -75,8 +76,8 @@ attribution (Apache-2.0 §4(d)).
 
 ### Third-party
 
-- **clap** (CLI), **ureq**/**serde** (OpenSubtitles), **wasm-bindgen** (web):
-  MIT OR Apache-2.0.
+- **clap** (CLI), **ureq**/**serde** (OpenSubtitles), **wasm-bindgen** (web),
+  **earshot** (the `--vad earshot` detector): MIT OR Apache-2.0.
 - **libav** (audio decode in the native CLI, via `ffmpeg-the-third`): LGPL-2.1+ —
   linked dynamically and built `--disable-gpl`, so our own code stays Apache-2.0
   and the result is App-Store-shippable (LGPL, not GPL). Credited, with a pointer

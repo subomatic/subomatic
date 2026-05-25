@@ -5,3 +5,12 @@ description = "Timing-only subtitle synchronization (parse/serialize, VAD-signal
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+
+[dependencies]
+# Optional, pure-Rust WebRTC-VAD port — a sharper detector than the built-in
+# EnergyVad. Feature-gated so the default core stays dependency-free and
+# WASM-clean (earshot is pure Rust, so it still compiles to WASM when enabled).
+earshot = { version = "1", optional = true }
+
+[features]
+earshot = ["dep:earshot"]

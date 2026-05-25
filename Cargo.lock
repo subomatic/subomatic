@@ -208,6 +208,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "earshot"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7984231f8b4c72eb3b88c70040dc1e4ff6803fa9169e93c0ac465942d74fa36a"
+
+[[package]]
 name = "ffmpeg-sys-the-third"
 version = "1.1.1+ffmpeg-6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -716,6 +722,9 @@ dependencies = [
 [[package]]
 name = "subomatic-core"
 version = "0.0.0"
+dependencies = [
+ "earshot",
+]
 
 [[package]]
 name = "subomatic-opensubtitles"
