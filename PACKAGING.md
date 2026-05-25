@@ -49,7 +49,27 @@ Linux (x64) binaries. Then sign for distribution:
 - **macOS:** `codesign` + notarize (`notarytool`) with a Developer ID; for the
   App Store, wrap the binary (or the Tauri app below) in a bundle and submit via
   App Store Connect. Requires a paid Apple Developer account.
-- **Windows:** sign the `.exe`/MSIX with a code-signing certificate (`signtool`).
+
+- **Windows.** Since June 2023 a publicly-trusted code-signing key must live on
+  FIPS-140 hardware (an HSM / USB token or a cloud HSM), which shapes the options:
+  - **Microsoft Store (easiest).** Submit an MSIX and the Store *signs it for you*
+    — no certificate of your own and no SmartScreen "unknown publisher" warning.
+    Needs a Partner Center account (~$19 one-time individual / ~$99 company). Best
+    paired with the Tauri/MSIX wrapper below; this is the Mac App Store analogue.
+  - **Azure Trusted Signing (best for CI / direct downloads).** Microsoft's
+    managed cloud HSM, ~$10/month, signs straight from CI. `release.yml` already
+    has an *optional, secrets-gated* step (`azure/trusted-signing-action`) that
+    runs only when all six of these repository secrets are set: `AZURE_TENANT_ID`,
+    `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`,
+    `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`. Note: the
+    *individual* tier is US/Canada-only today; in the EU it's open to
+    *organizations* (so an EU individual would enroll as an org).
+  - **Traditional CA cert + token (DigiCert / Sectigo / SSL.com).** An OV
+    (~$200–400/yr; SmartScreen trust accrues over time) or EV (~$300–700/yr;
+    instant SmartScreen trust) certificate on a token. Sign with
+    `signtool sign /fd SHA256 /tr <timestamp-url> /td SHA256 subomatic.exe` (the
+    timestamp keeps signatures valid past cert expiry); swap this in for the Azure
+    step if you go this route. arm64 and x64 sign identically.
 
 **For a GUI app (what the stores expect),** wrap the existing `web/` front-end in
 **Tauri** (reuses `subomatic-wasm`): `cargo create-tauri-app`, point it at `web/`,

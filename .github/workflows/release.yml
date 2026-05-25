@@ -26,6 +26,17 @@ jobs:
           - os: ubuntu-22.04 # ffmpeg 4.4, matching the `ffmpeg-the-third` range
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
+    # Set to 'true' only when ALL Trusted Signing secrets exist, so the optional
+    # signing step below is skipped (not failed) on forks and partial/unconfigured
+    # setups rather than running with missing credentials.
+    env:
+      WINDOWS_SIGNING_ENABLED: ${{
+        secrets.AZURE_TENANT_ID != '' &&
+        secrets.AZURE_CLIENT_ID != '' &&
+        secrets.AZURE_CLIENT_SECRET != '' &&
+        secrets.AZURE_TRUSTED_SIGNING_ENDPOINT != '' &&
+        secrets.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
+        secrets.AZURE_TRUSTED_SIGNING_PROFILE != '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -64,6 +75,26 @@ jobs:
           echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
       - name: Build the CLI
         run: cargo build --release -p subomatic-cli --target ${{ matrix.target }}
+      # Optional: sign the Windows .exe with Azure Trusted Signing (Microsoft's
+      # managed cloud HSM — no physical token). Skipped unless the secrets below
+      # are configured. See PACKAGING.md for getting an account and for the
+      # signtool-with-a-CA-cert and Microsoft-Store alternatives. Verify the
+      # action's latest version and input names against its README before use.
+      - name: Sign the Windows binary (optional, if configured)
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_ENABLED == 'true'
+        uses: azure/trusted-signing-action@v0.5.9
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: target/${{ matrix.target }}/release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
