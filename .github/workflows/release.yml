@@ -23,7 +23,7 @@ jobs:
             target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: ubuntu-latest
+          - os: ubuntu-22.04 # ffmpeg 4.4, matching the `ffmpeg-the-third` range
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:

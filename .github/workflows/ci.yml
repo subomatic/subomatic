@@ -13,7 +13,10 @@ env:
 jobs:
   check:
     name: fmt · clippy · test · wasm
-    runs-on: ubuntu-latest
+    # Pinned to 22.04 (ffmpeg 4.4): the `ffmpeg-the-third` version we use targets
+    # libav ≤ 6.0, and newer runners (24.04 = ffmpeg 6.1) add AVPixelFormat
+    # variants the crate's exhaustive matches don't cover (a compile error).
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
