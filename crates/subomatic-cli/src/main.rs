@@ -2,11 +2,12 @@
 //! `subomatic` — command-line subtitle synchronizer and fetcher.
 //!
 //! - `subomatic sync <subtitle> --reference good.srt` — align to a reference.
-//! - `subomatic sync <subtitle> --audio track.wav` — align to a WAV's speech.
+//! - `subomatic sync <subtitle> --audio movie.mkv` — align to a track's speech
+//!   (libav decodes mkv/mp4/ac-3/dts/aac/mp3/… in-process; no external tools).
 //! - `subomatic fetch --query "the matrix" --languages en` — download from
 //!   OpenSubtitles (needs an API key + account; via flags or env vars).
 
-mod wav;
+mod decode;
 
 use std::error::Error;
 use std::io::Write;
@@ -43,7 +44,7 @@ struct SyncArgs {
     #[arg(short, long)]
     reference: Option<PathBuf>,
 
-    /// Align to the speech in a WAV audio track.
+    /// Align to the speech in an audio or video file (mp4/mkv/mp3/aac/flac/…).
     #[arg(short, long)]
     audio: Option<PathBuf>,
 
@@ -125,8 +126,8 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn Error>> {
 /// guarantees exactly one of `--audio` / `--reference`).
 fn sync_source_spans(args: &SyncArgs) -> Result<Vec<Span>, Box<dyn Error>> {
     if let Some(audio) = &args.audio {
-        let pcm = wav::decode(&std::fs::read(audio)?)?;
-        Ok(EnergyVad::default().detect(&pcm.samples, pcm.sample_rate))
+        let (samples, sample_rate) = decode::decode(audio)?;
+        Ok(EnergyVad::default().detect(&samples, sample_rate))
     } else if let Some(reference) = &args.reference {
         let text = std::fs::read_to_string(reference)?;
         Ok(parse(detect_format(reference)?, &text, args.fps)?.spans())

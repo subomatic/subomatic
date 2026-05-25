@@ -10,3 +10,13 @@ the LICENSE file.
 Per section 4(d) of the License, anyone who redistributes Subomatic or a
 derivative work must retain the attribution notices contained in this NOTICE
 file.
+
+--------------------------------------------------------------------------------
+Third-party components
+
+The `subomatic` command-line tool links libav (libavcodec, libavformat,
+libavutil, libswresample) from the FFmpeg project <https://ffmpeg.org>, licensed
+under the GNU Lesser General Public License, version 2.1 or later. libav is
+linked dynamically and unmodified; its source is available from
+<https://ffmpeg.org/download.html>. Any binary distribution that bundles libav
+must include the LGPL license text and make the corresponding source available.

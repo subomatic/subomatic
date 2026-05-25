@@ -14,3 +14,14 @@ path = "src/main.rs"
 subomatic-core = { path = "../subomatic-core" }
 subomatic-opensubtitles = { path = "../subomatic-opensubtitles" }
 clap = { version = "4", features = ["derive", "env"] }
+# libav (libavformat + libavcodec + libswresample), FFI-linked — covers AC-3/DTS
+# and everything else. LGPL-2.1+, linked dynamically (the default for a system
+# libav). `ffmpeg-the-third` is the maintained drop-in fork of `ffmpeg-next`; it
+# detects the host libav at build time (here ffmpeg 4.4 / libavcodec 58) and uses
+# a modern bindgen that handles current SDK headers. We scope it to just the libs
+# we use (no avfilter/avdevice/swscale), trimming both build and bundle deps.
+ffmpeg-the-third = { version = "1.2", default-features = false, features = [
+    "codec",
+    "format",
+    "software-resampling",
+] }

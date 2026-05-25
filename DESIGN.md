@@ -30,24 +30,35 @@ dependencies.
   + timing warp. The engine works on *interval sets*, so its real input is
   reference activity spans + subtitle cues (PCM → spans happens in the
   VAD/decode layer, outside the core).
-- **Decode = ffmpeg LGPL only**, via two thin adapters that hand PCM to the
-  core: native FFI (ffmpeg-next / rsmpeg → libav) and web (ffmpeg.wasm). No OS
-  codecs, no hand-written demuxer.
-- **OpenSubtitles** fetch (REST) bolts on later.
+- **Decode lives outside the core**, in two thin adapters that hand it PCM: the
+  **CLI FFI-links libav** (libavcodec/libavformat, via the `ffmpeg-the-third`
+  bindings); the **web app uses the browser's WebAudio** decoder. We *link* the
+  library — we never shell out to the `ffmpeg` binary — so there's no external
+  tool to find and no CLI surface that can change underneath us.
+- **OpenSubtitles** fetch (REST) is wired into the CLI as `subomatic fetch`.
 
 ## Decode strategy
 
-- ffmpeg built stripped (`--disable-everything` + only the needed
-  demuxers/decoders, `--disable-gpl`) and with the `truehd`/`mlp` decoders
-  **disabled**.
-- Sync only needs a mono ~8–16 kHz **speech envelope**, so we decode only the
-  royalty-free **base/core** layer of scalable codecs (DTS core; the AC-3 sibling
-  of TrueHD; the AAC-LC base of HE-AAC) and ignore the encumbered hi-fi
-  extensions. Patent exposure ≈ 0.
-- Runtime enumerates audio tracks and picks the first decodable one. DTS-HD
-  always works (DTS core). Only TrueHD-as-sole-audio fails → graceful "open a
-  GitHub issue as a feature request".
-- Codecs: AAC-LC, AC-3, DTS core, E-AC-3, HE-AAC, Opus, Vorbis, FLAC, MP3, PCM.
+- Sync only needs a mono ~8–16 kHz **speech envelope**, so the CLI hands the file
+  to libav, takes the default audio track, downmixes it to mono f32 (libav's
+  resampler), and feeds the VAD. The engine never sees the container.
+- **Link the library, don't shell out.** We FFI-link libavcodec/libavformat (via
+  the `ffmpeg-the-third` bindings) instead of invoking the `ffmpeg` *binary*: a
+  compiled API can't break on a CLI-flag change, and there's no separate tool to
+  locate at runtime.
+- **Coverage: everything libav decodes** — AAC, AC-3, DTS, E-AC-3, MP3, FLAC,
+  Opus, Vorbis, ALAC, PCM, … inside MP4/MKV/TS/OGG/WAV/…. Verified end-to-end on
+  AC-3 and DTS, the common codecs that ruled out the pure-Rust decoders.
+- **Licensing:** libav is **LGPL-2.1+**. We link it **dynamically** (a system or
+  bundled shared library), build it `--disable-gpl`, and credit it in `NOTICE`
+  with a pointer to its source — which keeps our own code Apache-2.0 and is
+  App-Store-shippable (the store conflict is with *GPL*, not LGPL via dynamic
+  linking). For AC-3/DTS the software side is clean and the core patents have
+  largely expired; an IP review before a *paid* launch is still prudent.
+- **Trade-off we accepted:** libav is a C dependency, so the CLI needs libav +
+  libclang at build time and doesn't compile to WASM. That's fine — no shipping
+  target needs a Rust decoder in WASM: the **web app decodes with WebAudio** (the
+  wasm crate only receives PCM), and `subomatic-core` stays pure-Rust/WASM-clean.
 
 ## Subtitle formats
 
@@ -99,9 +110,13 @@ One unified dynamic program, not separate alass/ffsubsync engines.
   the "Subomatic" trademark. Permissive (not GPL) → still paid-App-Store-shippable.
 - We own our code (the clean-room engine + apps). We do **not** own dependencies;
   we comply with theirs:
-  - **ffmpeg** LGPL-2.1+ → dynamically linked / user-replaceable, bundle license
-    + attribution, provide/point to source, keep `--disable-gpl`.
-  - **earshot** (MIT/Apache) and other crates (MIT/Apache/BSD) → attribution.
+  - **libav** (libavcodec/libavformat/libswresample) LGPL-2.1+ → linked
+    **dynamically** as a system/bundled shared library (so a user can swap it),
+    built `--disable-gpl`, with its source pointed to and credited in `NOTICE`.
+    This leaves our own code Apache-2.0 and is App-Store-shippable (LGPL via
+    dynamic linking — the store conflict is with GPL, not LGPL).
+  - **clap / wasm-bindgen / ureq / serde** and other crates (MIT/Apache/BSD) →
+    attribution.
 - **Clean-room rule:** implement the engine from kaegi's thesis; never copy or
   port alass's GPL source. _(Not legal advice; an IP review before a paid launch
   is still worth it.)_
@@ -114,7 +129,8 @@ One unified dynamic program, not separate alass/ffsubsync engines.
    the fps-ratio scan (`best_alignment`), and `sync`; the `Vad` trait + a
    pure-Rust `EnergyVad`.
 2. **`subomatic-cli`** (`subomatic`) — `--reference` (sub-to-sub) and `--audio`
-   (WAV → VAD → sync) modes, with a dependency-free WAV decoder.
+   (audio/video → VAD → sync) modes; audio is decoded by **FFI-linking libav**,
+   covering AC-3/DTS/AAC/MP3/FLAC/Opus/… in MP4/MKV/TS/OGG/WAV/….
 3. **`subomatic-wasm`** + **`web/`** — wasm-bindgen bindings and a fully
    client-side browser app (the subsync.online replacement); WebAudio decodes the
    media in-page. The wasm32 build is gated in CI.
@@ -122,14 +138,18 @@ One unified dynamic program, not separate alass/ffsubsync engines.
    login / download); request-shaping and response-parsing unit-tested.
 5. A GitHub Pages **deploy workflow** (`.github/workflows/pages.yml`) for the web app.
 
-**Remaining — achievable in-repo:** wire the OpenSubtitles client into the CLI
-(a fetch-UX decision); an `earshot` VAD adapter (needs a 16 kHz resampler).
+**Remaining — achievable in-repo (optional enhancements):** an `earshot` VAD
+adapter for sharper speech detection than the working `EnergyVad` (needs a 16 kHz
+resampler).
 
 **Remaining — platform-bound (needs the user's machines/accounts):**
-- The **ffmpeg-LGPL decode adapter** (compressed audio in MKV/MP4/…), built for
-  the 5 targets — needs ffmpeg dev libs + cross toolchains.
+- **Distribution builds of libav:** the decode itself is done and tested, but
+  shipping it means building an LGPL (`--disable-gpl`) libav for each target
+  (macOS arm64/x64, Windows arm64/x64) and bundling the dynamic libs — CI links
+  the runner's *system* libav for dev binaries today.
 - **Mac App Store** signing + submission; **Windows arm64/x64** signed packaging.
 - Web-app: enable GitHub Pages (Settings → Pages → "GitHub Actions") and run the
   deploy workflow — the build is already automated.
 
-(WAV covers uncompressed audio today; ffmpeg extends it to everything else.)
+(The CLI decodes AC-3/DTS and everything else today by linking libav; what's left
+is per-target *packaging* of that library, not the decode itself.)

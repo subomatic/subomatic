@@ -1,8 +1,11 @@
 name: Release binaries
 
 # Builds unsigned `subomatic` CLI binaries for the desktop targets on a version
-# tag (or manual run). Signing / notarization / store submission are separate,
-# platform-specific steps the maintainer performs with their own certificates.
+# tag (or manual run). The CLI links libav (LGPL) via FFI, so each runner installs
+# libav + libclang below. NOTE: these link the runner's *system* libav to produce
+# test/dev binaries. Binaries for public distribution must link an LGPL
+# (`--disable-gpl`) libav and then be signed/notarized — see PACKAGING.md.
+# (Homebrew's ffmpeg is GPL-configured, so the macOS artifacts here are dev-only.)
 on:
   push:
     tags: ["v*"]
@@ -14,9 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-latest # arm64 runner → native arm64 build
             target: aarch64-apple-darwin
-          - os: macos-latest
+          - os: macos-13 # x64 runner → native x64 build (libav links cleanly)
             target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -29,6 +32,36 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      - name: Install libav + libclang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+            clang libclang-dev pkg-config
+      - name: Install libav (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg pkg-config
+      - name: Install libav + libclang (Windows, LGPL prebuilt)
+        if: runner.os == 'Windows'
+        shell: bash
+        # NOTE: this pulls a rolling prebuilt to produce *dev* binaries. For a
+        # reproducible, auditable release, pin this to your own `--disable-gpl`
+        # libav build and verify its checksum (see PACKAGING.md). The guards below
+        # fail the job loudly if the download or archive layout is unexpected.
+        run: |
+          set -euo pipefail
+          choco install -y llvm
+          url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
+          curl -fL -o ffmpeg.zip "$url" || { echo "::error::failed to download libav from $url"; exit 1; }
+          7z x ffmpeg.zip -offmpeg-dist
+          FF=$(echo "$(pwd)"/ffmpeg-dist/ffmpeg-*-lgpl-shared)
+          if [ ! -f "$FF/bin/ffmpeg.exe" ]; then
+            echo "::error::unexpected libav archive layout (no bin/ffmpeg.exe under $FF)"; exit 1
+          fi
+          echo "FFMPEG_DIR=$FF" >> "$GITHUB_ENV"
+          echo "$FF/bin" >> "$GITHUB_PATH"
+          echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
       - name: Build the CLI
         run: cargo build --release -p subomatic-cli --target ${{ matrix.target }}
       - name: Upload binary

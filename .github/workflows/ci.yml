@@ -21,6 +21,12 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - name: Install libav + libclang (the CLI links libav via FFI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+            clang libclang-dev pkg-config
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy (deny warnings)

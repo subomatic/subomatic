@@ -12,7 +12,8 @@ One shared Rust core targets a CLI, the browser (WASM), and (later) desktop apps
 - **Formats** — SubRip (`.srt`), WebVTT (`.vtt`), MicroDVD (`.sub`), and
   Advanced SubStation Alpha (`.ass`/`.ssa`); timing-only, so styling and text
   round-trip untouched.
-- **CLI** (`subomatic`) — sync to a reference subtitle or to a WAV track's speech.
+- **CLI** (`subomatic`) — sync to a reference subtitle or to the speech in an
+  audio/video file (MKV/MP4/AC-3/DTS/AAC/MP3/FLAC/…), decoded by FFI-linking libav.
 - **Web** — a browser app over the WASM core; WebAudio decodes the media in-page,
   so any format your browser can play drives the sync. Nothing is uploaded.
 
@@ -29,7 +30,7 @@ One shared Rust core targets a CLI, the browser (WASM), and (later) desktop apps
 ```sh
 # Re-time a subtitle:
 cargo run -p subomatic-cli -- sync late.srt --reference good.srt -o fixed.srt
-cargo run -p subomatic-cli -- sync late.srt --audio movie.wav -o fixed.srt
+cargo run -p subomatic-cli -- sync late.srt --audio movie.mkv -o fixed.srt
 
 # Fetch from OpenSubtitles (API key + account via flags or env vars):
 cargo run -p subomatic-cli -- fetch --query "the matrix" --languages en \
@@ -37,9 +38,10 @@ cargo run -p subomatic-cli -- fetch --query "the matrix" --languages en \
 ```
 
 `sync --reference` aligns to a known-good subtitle; `sync --audio` aligns to a
-WAV track's speech (`--split-penalty <ms>` enables piecewise shifts, `--fps`
-sets the MicroDVD rate). `fetch` searches OpenSubtitles and downloads the
-most-downloaded match.
+track's speech — libav (linked in-process, no `ffmpeg` subprocess) decodes any
+codec it supports, including AC-3 and DTS (`--split-penalty <ms>` enables
+piecewise shifts, `--fps` sets the MicroDVD rate). `fetch` searches OpenSubtitles
+and downloads the most-downloaded match.
 
 ## Web app
 
@@ -51,12 +53,19 @@ python3 -m http.server --directory web 8080   # then open http://localhost:8080
 
 ## Build & test
 
+The CLI links libav, so building it needs libav + libclang installed (the core
+and WASM crates have no such dependency):
+
 ```sh
+# macOS (Homebrew):  brew install ffmpeg pkg-config llvm
+# Debian/Ubuntu:     sudo apt-get install libavcodec-dev libavformat-dev \
+#                      libavutil-dev libswresample-dev clang libclang-dev pkg-config
+# If bindgen can't find libclang, set LIBCLANG_PATH to the directory holding it.
 cargo test
 ```
 
 CI also runs `cargo fmt --check`, `cargo clippy -- -D warnings`, and a
-`wasm32-unknown-unknown` build.
+`wasm32-unknown-unknown` build (core + bindings only — they don't link libav).
 
 ## License
 
@@ -66,9 +75,12 @@ attribution (Apache-2.0 §4(d)).
 
 ### Third-party
 
-- **clap** (CLI) and **wasm-bindgen** (web): MIT OR Apache-2.0.
-- **ffmpeg** (planned, for compressed-audio decode in the native CLI): LGPL-2.1+,
-  to be linked dynamically and user-replaceable.
+- **clap** (CLI), **ureq**/**serde** (OpenSubtitles), **wasm-bindgen** (web):
+  MIT OR Apache-2.0.
+- **libav** (audio decode in the native CLI, via `ffmpeg-the-third`): LGPL-2.1+ —
+  linked dynamically and built `--disable-gpl`, so our own code stays Apache-2.0
+  and the result is App-Store-shippable (LGPL, not GPL). Credited, with a pointer
+  to its source, in `NOTICE`.
 
 The synchronization algorithm is a **clean-room** implementation derived from
 kaegi's published thesis (*"Automatic Language-Agnostic Subtitle

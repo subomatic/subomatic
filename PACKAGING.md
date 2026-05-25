@@ -12,22 +12,33 @@ can't live in CI/source, so they're written as a checklist for the maintainer.
 It builds the WASM bundle and publishes `web/` to
 `https://lgibelli.github.io/subomatic`. (The workflow is `.github/workflows/pages.yml`.)
 
-## 2. Compressed-audio decode in the native CLI (ffmpeg-LGPL)
+## 2. Bundle an LGPL libav for distribution
 
-The **web** app already syncs to compressed audio (WebAudio decodes it in-page).
-The **CLI** currently decodes WAV only. To extend it to MKV/MP4/AC-3/DTS/…:
+Audio decode is **done and in-repo**: the CLI FFI-links libav (libavcodec /
+libavformat / libswresample, via `ffmpeg-the-third`) and decodes every codec libav
+supports — AC-3, DTS, E-AC-3, AAC, MP3, FLAC, Opus, Vorbis, ALAC, PCM, … inside
+MP4/MKV/TS/OGG/WAV/… (verified end-to-end on AC-3 and DTS). The **web** app decodes
+via WebAudio. What remains is *packaging* that library for shipping:
 
-1. Add a `crates/subomatic-decode` crate depending on `ffmpeg-next`
-   (libavformat + libavcodec).
-2. Build ffmpeg **LGPL, decode-only**: `--disable-gpl --disable-decoder=truehd,mlp`
-   and only the needed demuxers/decoders (see the codec strategy in `DESIGN.md`).
-3. Decode the first decodable audio track to **mono ~16 kHz f32**, then feed
-   `subomatic_core::EnergyVad` (the same spans the WAV path produces today).
-4. Branch `subomatic sync --audio <file>` to use it when the input isn't WAV.
+1. **Build libav LGPL, decode-only** for each target (macOS arm64/x64, Windows
+   arm64/x64): `--disable-gpl` (no GPL codecs/filters), ideally
+   `--disable-everything` plus only the demuxers/decoders you ship, and
+   `--disable-decoder=truehd,mlp` for patent hygiene. This keeps the result
+   **LGPL** — Apache-app- and App-Store-compatible — not GPL.
+2. **Link dynamically and bundle the shared libs** inside the `.app`/MSIX
+   (`@rpath`/`@loader_path` on macOS; the DLLs beside the `.exe` on Windows). The
+   user must be able to swap the library — dynamic linking gives that for free and
+   satisfies LGPL §6.
+3. **Carry the obligations:** ship libav's LGPL text + attribution in `NOTICE`,
+   and make the exact libav source you shipped available.
+4. **Build-time tooling:** each target needs libav dev libs + libclang (bindgen
+   generates the FFI). CI installs these from the system package manager for *dev*
+   binaries (see `release.yml`); a distribution build should point at your own
+   `--disable-gpl` libav (e.g. via `FFMPEG_DIR`).
 
-Needs ffmpeg dev libraries locally, and the per-target builds for distribution.
-(I can write this crate against your ffmpeg install — it just can't compile in
-this sandbox, which has no ffmpeg libs.)
+Patent note: we only extract a speech envelope, AC-3's core patents have largely
+expired, and we keep `--disable-gpl`; an IP review before a *paid* launch is still
+prudent (same caveat as the clean-room engine).
 
 ## 3. Desktop apps — Mac App Store & Windows
 
