@@ -13,11 +13,25 @@
 use crate::cue::{Cue, Format, Subtitle};
 
 /// Fallback frame rate when none is provided or declared (NTSC film, 23.976).
-pub const DEFAULT_FPS: f64 = 24_000.0 / 1_001.0;
+pub const DEFAULT_FPS: f64 = crate::NTSC_FILM_FPS;
+
+/// Whether `fps` is a usable frame rate: positive and finite.
+///
+/// The single source of truth for frame-rate validity, shared by the CLI and
+/// WASM front-ends (via [`invalid_fps_message`]) so they agree on what's valid.
+pub fn is_valid_fps(fps: f64) -> bool {
+    fps.is_finite() && fps > 0.0
+}
+
+/// The error message for a frame rate rejected by [`is_valid_fps`], so the CLI
+/// and web front-ends report it identically.
+pub fn invalid_fps_message(fps: f64) -> String {
+    format!("fps must be positive and finite, got {fps}")
+}
 
 /// A usable frame rate: positive and finite, else [`DEFAULT_FPS`].
 fn sane_fps(fps: f64) -> f64 {
-    if fps.is_finite() && fps > 0.0 {
+    if is_valid_fps(fps) {
         fps
     } else {
         DEFAULT_FPS
@@ -31,14 +45,13 @@ fn fps_from_header(header: &str) -> Option<f64> {
         return None; // only a genuine {1}{1}fps record declares the rate
     }
     let rate: f64 = text.trim().parse().ok()?;
-    (rate.is_finite() && rate > 0.0).then_some(rate)
+    is_valid_fps(rate).then_some(rate)
 }
 
 /// Parse MicroDVD text. `fps` converts frames to milliseconds; a leading
 /// `{1}{1}fps` declaration overrides it and is preserved in the header.
 pub fn parse(input: &str, fps: f64) -> Subtitle {
-    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = crate::text::normalize(input);
 
     let mut rate = sane_fps(fps);
     let mut header = String::new();
@@ -52,7 +65,7 @@ pub fn parse(input: &str, fps: f64) -> Subtitle {
         // declaration; the same shape later is a real one-frame cue.
         if cues.is_empty() && header.is_empty() && start_frame == 1 && end_frame == 1 {
             if let Ok(declared) = text.trim().parse::<f64>() {
-                if declared.is_finite() && declared > 0.0 {
+                if is_valid_fps(declared) {
                     rate = declared;
                     header = line.to_string(); // preserve the declaration verbatim
                     continue;

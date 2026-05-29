@@ -9,9 +9,7 @@
 //! Subtitle `format` strings are `"srt"`, `"vtt"`, `"sub"`, `"ass"`, or `"ssa"`
 //! (case-insensitive).
 
-use subomatic_core::{
-    ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Subtitle, Vad,
-};
+use subomatic_core::{ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Subtitle, Vad};
 use wasm_bindgen::prelude::*;
 
 /// Align `input` (format: `"srt"`, `"vtt"`, or `"sub"`) to a reference
@@ -53,7 +51,7 @@ fn sync_to_reference_impl(
     let subtitle = parse(input, format, fps)?;
     let reference = parse(reference_text, reference_format, fps)?;
     let synced = sync(&subtitle, &reference.spans(), &AlignParams::default());
-    Ok(serialize(&synced, fps))
+    Ok(synced.serialize(fps))
 }
 
 fn sync_to_audio_impl(
@@ -70,14 +68,14 @@ fn sync_to_audio_impl(
     let subtitle = parse(input, format, fps)?;
     let spans = EnergyVad::default().detect(samples, sample_rate);
     let synced = sync(&subtitle, &spans, &AlignParams::default());
-    Ok(serialize(&synced, fps))
+    Ok(synced.serialize(fps))
 }
 
 fn check_fps(fps: f64) -> Result<(), String> {
-    if fps.is_finite() && fps > 0.0 {
+    if microdvd::is_valid_fps(fps) {
         Ok(())
     } else {
-        Err(format!("fps must be positive and finite, got {fps}"))
+        Err(microdvd::invalid_fps_message(fps))
     }
 }
 
@@ -92,15 +90,6 @@ fn parse(text: &str, format: &str, fps: f64) -> Result<Subtitle, String> {
         ass::parse(text).map_err(|e| e.to_string())
     } else {
         Err(format!("unsupported subtitle format: {format:?}"))
-    }
-}
-
-fn serialize(subtitle: &Subtitle, fps: f64) -> String {
-    match subtitle.format {
-        Format::SubRip => srt::serialize(subtitle),
-        Format::WebVtt => vtt::serialize(subtitle),
-        Format::MicroDvd => microdvd::serialize(subtitle, fps),
-        Format::Ass => ass::serialize(subtitle),
     }
 }
 

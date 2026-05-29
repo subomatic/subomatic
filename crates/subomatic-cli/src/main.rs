@@ -130,7 +130,7 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn Error>> {
     };
     let synced = sync(&subtitle, &reference_spans, &params);
 
-    let output_text = serialize(format, &synced, args.fps);
+    let output_text = synced.serialize(args.fps);
     match args.output {
         Some(path) => std::fs::write(path, output_text)?,
         // Write directly (not `print!`) so a broken pipe is a clean error, not a panic.
@@ -177,10 +177,23 @@ fn run_fetch(args: FetchArgs) -> Result<(), Box<dyn Error>> {
     client.login(&args.username, &args.password)?;
     let text = client.download(best.file_id)?;
 
-    // The filename comes from the server: only ever write a sanitized basename.
-    let output = args
-        .output
-        .unwrap_or_else(|| PathBuf::from(safe_filename(&best.file_name)));
+    // The filename comes from the server: only ever write a sanitized basename,
+    // and don't silently clobber an existing file — `--output` is the explicit
+    // opt-in to choose (and overwrite) a destination.
+    let output = match args.output {
+        Some(path) => path,
+        None => {
+            let path = PathBuf::from(safe_filename(&best.file_name));
+            if path.exists() {
+                return Err(format!(
+                    "refusing to overwrite existing file {}; pass --output to choose where to save",
+                    path.display()
+                )
+                .into());
+            }
+            path
+        }
+    };
     std::fs::write(&output, text)?;
     eprintln!(
         "Downloaded a {} subtitle ({} downloads) -> {}",
@@ -225,10 +238,10 @@ fn detect_format(path: &Path) -> Result<Format, String> {
 /// Validate a `--fps` value: must be a positive, finite number.
 fn parse_fps(s: &str) -> Result<f64, String> {
     let value: f64 = s.parse().map_err(|_| format!("not a number: {s:?}"))?;
-    if value.is_finite() && value > 0.0 {
+    if microdvd::is_valid_fps(value) {
         Ok(value)
     } else {
-        Err(format!("fps must be positive and finite, got {value}"))
+        Err(microdvd::invalid_fps_message(value))
     }
 }
 
@@ -239,15 +252,6 @@ fn parse(format: Format, text: &str, fps: f64) -> Result<Subtitle, Box<dyn Error
         Format::MicroDvd => microdvd::parse(text, fps),
         Format::Ass => ass::parse(text)?,
     })
-}
-
-fn serialize(format: Format, subtitle: &Subtitle, fps: f64) -> String {
-    match format {
-        Format::SubRip => srt::serialize(subtitle),
-        Format::WebVtt => vtt::serialize(subtitle),
-        Format::MicroDvd => microdvd::serialize(subtitle, fps),
-        Format::Ass => ass::serialize(subtitle),
-    }
 }
 
 #[cfg(test)]
@@ -297,7 +301,7 @@ mod tests {
     fn parse_then_serialize_round_trips_srt() {
         let text = "1\n00:00:01,000 --> 00:00:02,000\nHi\n";
         let sub = parse(Format::SubRip, text, 25.0).unwrap();
-        let out = serialize(Format::SubRip, &sub, 25.0);
+        let out = sub.serialize(25.0);
         let reparsed = parse(Format::SubRip, &out, 25.0).unwrap();
         assert_eq!(reparsed.cues, sub.cues);
     }

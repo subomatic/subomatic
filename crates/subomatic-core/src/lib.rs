@@ -22,12 +22,15 @@ pub mod ass;
 pub mod cue;
 pub mod microdvd;
 pub mod srt;
+mod text;
 pub mod vad;
 pub mod vtt;
 
-pub use align::{
-    align_offsets, best_alignment, best_global_offset, AlignParams, Alignment, SearchRange,
-};
+/// Exact NTSC film frame rate (24000/1001 ≈ 23.976) — the single source for both
+/// the MicroDVD fallback rate and the alignment engine's play-rate scan.
+pub(crate) const NTSC_FILM_FPS: f64 = 24_000.0 / 1_001.0;
+
+pub use align::{align_offsets, best_alignment, AlignParams, Alignment, SearchRange};
 pub use cue::{Cue, Format, Subtitle};
 #[cfg(feature = "earshot")]
 pub use vad::EarshotVad;

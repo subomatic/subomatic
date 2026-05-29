@@ -97,29 +97,20 @@ fn parse_time(s: &str) -> Option<i64> {
     if hours < 0 || minutes < 0 || seconds < 0 {
         return None;
     }
-    hours
-        .checked_mul(60)
-        .and_then(|v| v.checked_add(minutes))
-        .and_then(|v| v.checked_mul(60))
-        .and_then(|v| v.checked_add(seconds))
-        .and_then(|v| v.checked_mul(1000))
-        .and_then(|v| v.checked_add(centis.checked_mul(10)?))
+    // ASS sub-seconds are centiseconds; convert to ms for the shared accumulator.
+    crate::text::hms_to_ms(hours, minutes, seconds, centis.checked_mul(10)?)
 }
 
 /// Format milliseconds as ASS time `H:MM:SS.cc`.
 fn format_time(ms: i64) -> String {
-    let ms = ms.max(0);
-    let hours = ms / 3_600_000;
-    let minutes = (ms % 3_600_000) / 60_000;
-    let seconds = (ms % 60_000) / 1000;
-    let centis = (ms % 1000) / 10;
+    let (hours, minutes, seconds, millis) = crate::text::decompose_ms(ms);
+    let centis = millis / 10;
     format!("{hours}:{minutes:02}:{seconds:02}.{centis:02}")
 }
 
 /// Parse ASS/SSA text into a [`Subtitle`].
 pub fn parse(input: &str) -> Result<Subtitle, AssError> {
-    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = crate::text::normalize(input);
 
     let mut columns: Option<Columns> = None;
     let mut header_lines: Vec<&str> = Vec::new();

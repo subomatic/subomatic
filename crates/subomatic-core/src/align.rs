@@ -101,13 +101,6 @@ fn overlap_at(reference: &[Span], cue: Span, delta: i64) -> i64 {
     reference.iter().map(|r| shifted.overlap(r)).sum()
 }
 
-/// Total overlap (ms) of all `cues` shifted by a single `delta`.
-fn total_overlap(reference: &[Span], cues: &[Span], delta: i64) -> i64 {
-    cues.iter()
-        .map(|&cue| overlap_at(reference, cue, delta))
-        .sum()
-}
-
 /// Index of the highest score, breaking ties toward the offset closest to zero
 /// so a no-evidence (all-equal) result lands on the smallest shift.
 fn best_index(scores: &[i64], deltas: &[i64]) -> usize {
@@ -120,46 +113,6 @@ fn best_index(scores: &[i64], deltas: &[i64]) -> usize {
         }
     }
     best
-}
-
-/// Find the single global offset (ms, to add to every cue) that best aligns the
-/// subtitle to the reference activity.
-///
-/// Returns `0` when there is nothing to align (no cues or no reference) or when
-/// no offset produces any overlap — it never shifts subtitles without evidence.
-/// Ties are broken toward the offset closest to zero.
-pub fn best_global_offset(reference: &[Span], cues: &[Span], range: SearchRange) -> i64 {
-    if reference.is_empty() || cues.is_empty() {
-        return 0;
-    }
-
-    // Measure overlap against the union of the reference spans.
-    let reference = merge_spans(reference);
-
-    let step = range.step.max(1);
-    // Seed with the no-op (delta 0): a candidate only wins with strictly more
-    // overlap, and ties prefer the smaller absolute shift. With no overlap
-    // anywhere, the result stays at 0.
-    let mut best_delta: i64 = 0;
-    let mut best_score = total_overlap(&reference, cues, 0);
-
-    let mut delta = range.min_delta;
-    while delta <= range.max_delta {
-        let score = total_overlap(&reference, cues, delta);
-        if score > best_score
-            || (score == best_score && delta.unsigned_abs() < best_delta.unsigned_abs())
-        {
-            best_score = score;
-            best_delta = delta;
-        }
-        // Checked add so a search range near i64::MAX can't overflow or loop forever.
-        let Some(next) = delta.checked_add(step) else {
-            break;
-        };
-        delta = next;
-    }
-
-    best_delta
 }
 
 /// Assign each cue an offset (ms, to add) via the piecewise dynamic program.
@@ -220,7 +173,7 @@ pub fn align_offsets(reference: &[Span], cues: &[Span], params: &AlignParams) ->
 /// Common play-rate conversion ratios to test for frame-rate drift, using exact
 /// NTSC fractions (23.976 = 24000/1001, 29.97 = 30000/1001).
 fn fps_ratios() -> [f64; 9] {
-    let film = 24_000.0 / 1_001.0; // 23.976
+    let film = crate::NTSC_FILM_FPS; // 23.976 (NTSC film)
     let video = 30_000.0 / 1_001.0; // 29.97
     [
         1.0,
@@ -274,66 +227,9 @@ mod tests {
     }
 
     #[test]
-    fn recovers_a_known_global_shift() {
-        let reference = spans([(1_000, 2_000), (5_000, 6_000), (9_000, 10_000)]);
-        let shift = 1_500;
-        let cues: Vec<Span> = reference.iter().map(|s| s.shifted(shift)).collect();
-
-        let delta = best_global_offset(&reference, &cues, SearchRange::default());
-
-        assert!(
-            (delta + shift).abs() <= SearchRange::default().step,
-            "expected ~{}, got {delta}",
-            -shift
-        );
-    }
-
-    #[test]
-    fn empty_inputs_are_a_no_op() {
-        assert_eq!(
-            best_global_offset(&spans([]), &spans([(0, 1)]), SearchRange::default()),
-            0
-        );
-        assert_eq!(
-            best_global_offset(&spans([(0, 1)]), &spans([]), SearchRange::default()),
-            0
-        );
-    }
-
-    #[test]
-    fn no_overlap_anywhere_returns_zero() {
-        let reference = spans([(0, 1_000)]);
-        let cues = spans([(500_000, 501_000)]);
-        assert_eq!(
-            best_global_offset(&reference, &cues, SearchRange::default()),
-            0
-        );
-    }
-
-    #[test]
-    fn duplicate_reference_spans_do_not_bias_result() {
-        let reference = spans([(1_000, 2_000), (1_000, 2_000)]);
-        let cues = spans([(1_000, 2_000)]);
-        assert_eq!(
-            best_global_offset(&reference, &cues, SearchRange::default()),
-            0
-        );
-    }
-
-    #[test]
     fn merge_spans_unions_overlapping_intervals() {
         let merged = merge_spans(&spans([(0, 100), (50, 150), (200, 250)]));
         assert_eq!(merged, spans([(0, 150), (200, 250)]));
-    }
-
-    #[test]
-    fn search_range_near_i64_max_terminates() {
-        let range = SearchRange {
-            min_delta: i64::MAX - 50,
-            max_delta: i64::MAX,
-            step: 100,
-        };
-        let _ = best_global_offset(&spans([(0, 1_000)]), &spans([(0, 1_000)]), range);
     }
 
     #[test]

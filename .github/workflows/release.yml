@@ -11,6 +11,13 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege: this workflow only reads code and uploads build artifacts
+# (via the Actions API, not the contents API). Constrain the GITHUB_TOKEN so a
+# compromised step can't write to the repo. Grant `contents: write` on a
+# dedicated job if you later add GitHub Release publishing.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -27,8 +34,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     # Set to 'true' only when ALL Trusted Signing secrets exist, so the optional
-    # signing step below is skipped (not failed) on forks and partial/unconfigured
-    # setups rather than running with missing credentials.
+    # signing step below is skipped (not failed) when signing isn't fully
+    # configured, rather than running with missing credentials. (This workflow
+    # has no pull_request trigger; if you ever add one, do NOT use
+    # pull_request_target on any job that reads these secrets — fork PRs would
+    # then gain access to them.)
     env:
       WINDOWS_SIGNING_ENABLED: ${{
         secrets.AZURE_TENANT_ID != '' &&
@@ -39,7 +49,10 @@ jobs:
         secrets.AZURE_TRUSTED_SIGNING_PROFILE != '' }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to a commit SHA (supply-chain hardening); `# stable` records the
+      # tracked channel. This job can access the signing secrets, so a mutable
+      # action ref would be especially risky here. Bump the SHA deliberately.
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2

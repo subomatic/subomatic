@@ -75,6 +75,18 @@ impl Subtitle {
         }
     }
 
+    /// Serialize back to this subtitle's original [`Format`] (re-emitting the
+    /// same format it was parsed from). `fps` is used only by MicroDVD, which is
+    /// frame-based; the other formats ignore it.
+    pub fn serialize(&self, fps: f64) -> String {
+        match self.format {
+            Format::SubRip => crate::srt::serialize(self),
+            Format::WebVtt => crate::vtt::serialize(self),
+            Format::MicroDvd => crate::microdvd::serialize(self, fps),
+            Format::Ass => crate::ass::serialize(self),
+        }
+    }
+
     /// Apply an [`Alignment`] in place: scale every cue by `fps_ratio`, then add
     /// its per-cue offset (saturating). Cues without a matching offset keep the
     /// scaled time. Payloads are never touched.

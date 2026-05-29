@@ -83,7 +83,6 @@ pub struct Subtitle {
     pub file_id: i64,
     pub file_name: String,
     pub language: String,
-    pub release: String,
     pub download_count: i64,
 }
 
@@ -102,7 +101,9 @@ impl Client {
             api_key: api_key.into(),
             user_agent: user_agent.into(),
             token: None,
-            agent: ureq::agent(),
+            // Refuse plain HTTP (including via redirects) so a hostile or MITM'd
+            // response can't downgrade the transport.
+            agent: ureq::AgentBuilder::new().https_only(true).build(),
         }
     }
 
@@ -133,6 +134,11 @@ impl Client {
         let link = parse_download(&handle(
             self.post(&format!("{BASE}/download")).send_json(body),
         )?)?;
+        // The link comes from the API response; confirm it's an HTTPS
+        // opensubtitles.com URL before fetching, so a hostile/compromised
+        // response can't point us at an internal or attacker-controlled host
+        // (SSRF). Note no Api-Key/token header is attached to this fetch.
+        validate_download_link(&link)?;
         handle(
             self.agent
                 .get(&link)
@@ -196,13 +202,33 @@ fn parse_download(text: &str) -> Result<String, Error> {
     Ok(response.link)
 }
 
+/// Accept only HTTPS download links whose host is `opensubtitles.com` (or a
+/// subdomain), so an API response can't steer the fetch to another host.
+fn validate_download_link(link: &str) -> Result<(), Error> {
+    let rest = link
+        .strip_prefix("https://")
+        .ok_or_else(|| Error::Parse(format!("download link is not https: {link:?}")))?;
+    // Host = the authority up to the first '/', '?' or '#', minus any
+    // `user@` userinfo and `:port` suffix; tolerate a trailing FQDN dot.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = host.split(':').next().unwrap_or(host);
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host == "opensubtitles.com" || host.ends_with(".opensubtitles.com") {
+        Ok(())
+    } else {
+        Err(Error::Parse(format!(
+            "download link host is not opensubtitles.com: {link:?}"
+        )))
+    }
+}
+
 fn into_subtitle(datum: SearchDatum) -> Option<Subtitle> {
     let file = datum.attributes.files.into_iter().next()?;
     Some(Subtitle {
         file_id: file.file_id,
         file_name: file.file_name,
         language: datum.attributes.language.unwrap_or_default(),
-        release: datum.attributes.release,
         download_count: datum.attributes.download_count,
     })
 }
@@ -228,8 +254,6 @@ struct Attributes {
     language: Option<String>,
     #[serde(default)]
     download_count: i64,
-    #[serde(default)]
-    release: String,
     #[serde(default)]
     files: Vec<FileRef>,
 }
@@ -277,7 +301,6 @@ mod tests {
                 "attributes": {
                     "language": "en",
                     "download_count": 42,
-                    "release": "The.Matrix.1999.1080p",
                     "files": [{ "file_id": 9876, "file_name": "matrix.srt" }]
                 }
             }]
@@ -297,6 +320,20 @@ mod tests {
             parse_download(json).unwrap(),
             "https://dl.opensubtitles.com/x/matrix.srt"
         );
+    }
+
+    #[test]
+    fn validates_download_link_host_and_scheme() {
+        // The real download host (and the apex) are accepted.
+        assert!(validate_download_link("https://dl.opensubtitles.com/x/matrix.srt").is_ok());
+        assert!(validate_download_link("https://opensubtitles.com/f.srt").is_ok());
+        // Plain HTTP is rejected (no transport downgrade).
+        assert!(validate_download_link("http://dl.opensubtitles.com/x").is_err());
+        // Foreign hosts, look-alikes, and userinfo tricks are rejected.
+        assert!(validate_download_link("https://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_download_link("https://evil-opensubtitles.com/x").is_err());
+        assert!(validate_download_link("https://opensubtitles.com.evil.com/x").is_err());
+        assert!(validate_download_link("https://opensubtitles.com@evil.com/x").is_err());
     }
 
     #[test]

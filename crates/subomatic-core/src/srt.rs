@@ -32,8 +32,7 @@ impl std::error::Error for SrtError {}
 /// Parse SubRip text into a [`Subtitle`].
 pub fn parse(input: &str) -> Result<Subtitle, SrtError> {
     // Strip a leading UTF-8 BOM, then normalize line endings.
-    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = crate::text::normalize(input);
 
     let mut cues = Vec::new();
     let mut block: Vec<&str> = Vec::new();
@@ -126,13 +125,7 @@ fn parse_timestamp(s: &str) -> Result<i64, SrtError> {
     }
     let ms = parse_field(Some(millis), s)?;
 
-    hours
-        .checked_mul(60)
-        .and_then(|v| v.checked_add(minutes))
-        .and_then(|v| v.checked_mul(60))
-        .and_then(|v| v.checked_add(seconds))
-        .and_then(|v| v.checked_mul(1000))
-        .and_then(|v| v.checked_add(ms))
+    crate::text::hms_to_ms(hours, minutes, seconds, ms)
         .ok_or_else(|| SrtError::BadTimestamp(s.to_string()))
 }
 
@@ -150,11 +143,7 @@ fn parse_field(field: Option<&str>, whole: &str) -> Result<i64, SrtError> {
 }
 
 fn format_timestamp(ms: i64) -> String {
-    let ms = ms.max(0);
-    let hours = ms / 3_600_000;
-    let minutes = (ms % 3_600_000) / 60_000;
-    let seconds = (ms % 60_000) / 1000;
-    let millis = ms % 1000;
+    let (hours, minutes, seconds, millis) = crate::text::decompose_ms(ms);
     format!("{hours:02}:{minutes:02}:{seconds:02},{millis:03}")
 }
 
