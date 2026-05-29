@@ -9,7 +9,7 @@
 //! Subtitle `format` strings are `"srt"`, `"vtt"`, `"sub"`, `"ass"`, or `"ssa"`
 //! (case-insensitive).
 
-use subomatic_core::{ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Subtitle, Vad};
+use subomatic_core::{microdvd, sync, AlignParams, EnergyVad, Format, Subtitle, Vad};
 use wasm_bindgen::prelude::*;
 
 /// Align `input` (format: `"srt"`, `"vtt"`, or `"sub"`) to a reference
@@ -80,17 +80,9 @@ fn check_fps(fps: f64) -> Result<(), String> {
 }
 
 fn parse(text: &str, format: &str, fps: f64) -> Result<Subtitle, String> {
-    if format.eq_ignore_ascii_case("srt") {
-        srt::parse(text).map_err(|e| e.to_string())
-    } else if format.eq_ignore_ascii_case("vtt") {
-        vtt::parse(text).map_err(|e| e.to_string())
-    } else if format.eq_ignore_ascii_case("sub") {
-        Ok(microdvd::parse(text, fps))
-    } else if format.eq_ignore_ascii_case("ass") || format.eq_ignore_ascii_case("ssa") {
-        ass::parse(text).map_err(|e| e.to_string())
-    } else {
-        Err(format!("unsupported subtitle format: {format:?}"))
-    }
+    let format = Format::from_extension(format)
+        .ok_or_else(|| format!("unsupported subtitle format: {format:?}"))?;
+    Subtitle::parse(format, text, fps).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

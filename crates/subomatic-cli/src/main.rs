@@ -16,9 +16,7 @@ use std::path::{Path, PathBuf};
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 #[cfg(feature = "earshot")]
 use subomatic_core::EarshotVad;
-use subomatic_core::{
-    ass, microdvd, srt, sync, vtt, AlignParams, EnergyVad, Format, Span, Subtitle, Vad,
-};
+use subomatic_core::{microdvd, sync, AlignParams, EnergyVad, Format, Span, Subtitle, Vad};
 use subomatic_opensubtitles::{Client, SearchQuery};
 
 #[derive(Parser)]
@@ -121,7 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run_sync(args: SyncArgs) -> Result<(), Box<dyn Error>> {
     let format = detect_format(&args.input)?;
-    let subtitle = parse(format, &std::fs::read_to_string(&args.input)?, args.fps)?;
+    let subtitle = Subtitle::parse(format, &std::fs::read_to_string(&args.input)?, args.fps)?;
     let reference_spans = sync_source_spans(&args)?;
 
     let params = AlignParams {
@@ -151,7 +149,7 @@ fn sync_source_spans(args: &SyncArgs) -> Result<Vec<Span>, Box<dyn Error>> {
         })
     } else if let Some(reference) = &args.reference {
         let text = std::fs::read_to_string(reference)?;
-        Ok(parse(detect_format(reference)?, &text, args.fps)?.spans())
+        Ok(Subtitle::parse(detect_format(reference)?, &text, args.fps)?.spans())
     } else {
         Err("no sync source: pass --audio or --reference".into())
     }
@@ -217,22 +215,13 @@ fn safe_filename(name: &str) -> String {
     }
 }
 
-/// Pick a subtitle format from a file extension.
+/// Pick a subtitle format from a file's extension (the path→format wrapper over
+/// the core [`Format::from_extension`] mapping).
 fn detect_format(path: &Path) -> Result<Format, String> {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("srt") => Ok(Format::SubRip),
-        Some("vtt") => Ok(Format::WebVtt),
-        Some("sub") => Ok(Format::MicroDvd),
-        Some("ass") | Some("ssa") => Ok(Format::Ass),
-        other => Err(format!(
-            "unsupported subtitle extension {other:?} (expected .srt, .vtt, .sub, .ass, or .ssa)"
-        )),
-    }
+    let ext = path.extension().and_then(|e| e.to_str());
+    ext.and_then(Format::from_extension).ok_or_else(|| {
+        format!("unsupported subtitle extension {ext:?} (expected .srt, .vtt, .sub, .ass, or .ssa)")
+    })
 }
 
 /// Validate a `--fps` value: must be a positive, finite number.
@@ -243,15 +232,6 @@ fn parse_fps(s: &str) -> Result<f64, String> {
     } else {
         Err(microdvd::invalid_fps_message(value))
     }
-}
-
-fn parse(format: Format, text: &str, fps: f64) -> Result<Subtitle, Box<dyn Error>> {
-    Ok(match format {
-        Format::SubRip => srt::parse(text)?,
-        Format::WebVtt => vtt::parse(text)?,
-        Format::MicroDvd => microdvd::parse(text, fps),
-        Format::Ass => ass::parse(text)?,
-    })
 }
 
 #[cfg(test)]
@@ -300,9 +280,9 @@ mod tests {
     #[test]
     fn parse_then_serialize_round_trips_srt() {
         let text = "1\n00:00:01,000 --> 00:00:02,000\nHi\n";
-        let sub = parse(Format::SubRip, text, 25.0).unwrap();
+        let sub = Subtitle::parse(Format::SubRip, text, 25.0).unwrap();
         let out = sub.serialize(25.0);
-        let reparsed = parse(Format::SubRip, &out, 25.0).unwrap();
+        let reparsed = Subtitle::parse(Format::SubRip, &out, 25.0).unwrap();
         assert_eq!(reparsed.cues, sub.cues);
     }
 }
