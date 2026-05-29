@@ -5,7 +5,7 @@
 //! and the target subtitle are treated as sets of time [`Span`]s. Alignment
 //! finds the timing correction that maximizes their overlap.
 //!
-//! One unified dynamic program does both jobs: [`align_offsets`] assigns each
+//! One unified dynamic program does both jobs: `align_offsets` assigns each
 //! cue an offset on a quantized grid, maximizing total overlap minus a
 //! `split_penalty` per change of offset between consecutive cues.
 //! `split_penalty = i64::MAX` forces a single shared offset (a global shift,
@@ -34,7 +34,7 @@ impl Default for SearchRange {
     }
 }
 
-/// Parameters for [`align_offsets`] / [`best_alignment`].
+/// Parameters for `align_offsets` / [`best_alignment`].
 #[derive(Clone, Copy, Debug)]
 pub struct AlignParams {
     pub range: SearchRange,
@@ -119,7 +119,11 @@ fn best_index(scores: &[i64], deltas: &[i64]) -> usize {
 ///
 /// Returns the per-cue offsets and the alignment's score (total overlap minus
 /// split penalties). See the module docs for the `split_penalty` knob.
-pub fn align_offsets(reference: &[Span], cues: &[Span], params: &AlignParams) -> (Vec<i64>, i64) {
+pub(crate) fn align_offsets(
+    reference: &[Span],
+    cues: &[Span],
+    params: &AlignParams,
+) -> (Vec<i64>, i64) {
     if cues.is_empty() {
         return (Vec::new(), 0);
     }
@@ -194,7 +198,7 @@ pub fn scale_time(t: i64, ratio: f64) -> i64 {
 }
 
 /// Find the best [`Alignment`] (frame-rate ratio + per-cue offsets) by scanning
-/// common play-rate ratios and running [`align_offsets`] for each.
+/// common play-rate ratios and running `align_offsets` for each.
 pub fn best_alignment(reference: &[Span], cues: &[Span], params: &AlignParams) -> Alignment {
     let mut best = Alignment {
         fps_ratio: 1.0,
