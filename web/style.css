@@ -103,6 +103,15 @@ a {
   opacity: 0.75;
 }
 
+/* Top bar on the app page (links to the explainer + source). */
+.topbar {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  font-size: 0.875rem;
+  opacity: 0.75;
+}
+
 /* "How it works" article page */
 .back {
   display: inline-block;
