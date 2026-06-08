@@ -1,8 +1,12 @@
 name: Deploy web app to GitHub Pages
 
-# Manual trigger: enable Pages (Settings → Pages → Source: GitHub Actions) first,
-# then run this workflow. Kept off push so it can't fail CI before that setup.
+# Builds the WASM bundle and publishes web/ to GitHub Pages on every push to
+# main. One-time setup: Settings → Pages → Source: GitHub Actions. This repo is
+# the subomatic.github.io org site, so the result is served at the bare
+# https://subomatic.github.io/.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +35,7 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked
       - name: Build the WASM bundle into web/pkg
-        run: wasm-pack build crates/subomatic-wasm --target web --out-dir ../../web/pkg
+        run: ./build.sh
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

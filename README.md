@@ -48,9 +48,18 @@ OpenSubtitles and downloads the most-downloaded match.
 
 ```sh
 # Build the WASM bundle into web/pkg, then serve web/.
-wasm-pack build crates/subomatic-wasm --target web --out-dir ../../web/pkg
+./build.sh                                    # wasm-pack build crates/subomatic-wasm → web/pkg
 python3 -m http.server --directory web 8080   # then open http://localhost:8080
 ```
+
+### Deploy
+
+The web app is hosted on **GitHub Pages** at
+**[subomatic.github.io](https://subomatic.github.io)**. This repository is the
+`subomatic.github.io` org site, so `.github/workflows/pages.yml` builds the WASM
+bundle and publishes `web/` to Pages on every push to `main` — no other service
+involved. One-time setup: in *Settings → Pages*, set the source to
+**GitHub Actions**.
 
 ## Build & test
 
