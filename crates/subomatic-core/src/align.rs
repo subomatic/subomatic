@@ -95,7 +95,66 @@ fn delta_grid(range: SearchRange) -> Vec<i64> {
     grid
 }
 
-/// Overlap (ms) between one `cue` shifted by `delta` and the (disjoint) reference.
+/// Cumulative coverage of sorted, disjoint reference intervals, for O(log n)
+/// total-overlap queries instead of an O(n) per-shift scan.
+///
+/// `covered(t)` is the total reference length lying before `t`; the overlap of
+/// any interval `[a, b)` with the reference union is then exactly
+/// `covered(b) - covered(a)`. This is an *exact* rewrite of the naive per-span
+/// sum — not an approximation — so the alignment it yields is identical, just
+/// far cheaper. The `coverage_overlap_matches_naive_scan` test pins that
+/// equivalence against [`overlap_at`].
+struct Coverage {
+    /// Interval start times, ascending (one per disjoint reference interval).
+    starts: Vec<i64>,
+    /// Matching interval end times.
+    ends: Vec<i64>,
+    /// `prefix[i]` = total length of intervals `0..i` (so `prefix[0] == 0`).
+    prefix: Vec<i64>,
+}
+
+impl Coverage {
+    /// Build from already-merged (sorted, disjoint) reference spans.
+    fn new(merged: &[Span]) -> Self {
+        let mut starts = Vec::with_capacity(merged.len());
+        let mut ends = Vec::with_capacity(merged.len());
+        let mut prefix = Vec::with_capacity(merged.len());
+        let mut total = 0i64;
+        for span in merged {
+            starts.push(span.start);
+            ends.push(span.end);
+            prefix.push(total);
+            total = total.saturating_add(span.end - span.start);
+        }
+        Coverage {
+            starts,
+            ends,
+            prefix,
+        }
+    }
+
+    /// Total reference length lying strictly before `t`.
+    fn covered(&self, t: i64) -> i64 {
+        // Intervals whose start precedes `t`. Since they're sorted and disjoint,
+        // all but the last also *end* before `t` (their full length is
+        // `prefix[i-1]`); the last is clipped to `t`.
+        let i = self.starts.partition_point(|&s| s < t);
+        if i == 0 {
+            return 0;
+        }
+        self.prefix[i - 1] + (self.ends[i - 1].min(t) - self.starts[i - 1])
+    }
+
+    /// Exact total overlap between `span` and the reference union.
+    fn overlap(&self, span: Span) -> i64 {
+        (self.covered(span.end) - self.covered(span.start)).max(0)
+    }
+}
+
+/// Overlap (ms) between one `cue` shifted by `delta` and the (disjoint)
+/// reference, by a direct per-span scan. Retained only as the exact oracle the
+/// fast [`Coverage`] path is tested against.
+#[cfg(test)]
 fn overlap_at(reference: &[Span], cue: Span, delta: i64) -> i64 {
     let shifted = cue.shifted(delta);
     reference.iter().map(|r| shifted.overlap(r)).sum()
@@ -137,11 +196,12 @@ pub(crate) fn align_offsets_with_progress(
     if reference.is_empty() || deltas.is_empty() {
         return (vec![0; cues.len()], 0);
     }
+    let coverage = Coverage::new(&reference);
 
     // `dp[k]` = best score for cues so far with the current cue at `deltas[k]`.
     let mut dp: Vec<i64> = deltas
         .iter()
-        .map(|&delta| overlap_at(&reference, cues[0], delta))
+        .map(|&delta| coverage.overlap(cues[0].shifted(delta)))
         .collect();
     // `back[i][k]` = delta-index chosen for cue `i`, given cue `i+1` sits at `k`.
     let mut back: Vec<Vec<usize>> = Vec::with_capacity(cues.len().saturating_sub(1));
@@ -161,7 +221,7 @@ pub(crate) fn align_offsets_with_progress(
             } else {
                 (prev_best, switch_score)
             };
-            row[k] = overlap_at(&reference, cue, delta).saturating_add(base);
+            row[k] = coverage.overlap(cue.shifted(delta)).saturating_add(base);
             row_back[k] = from;
         }
         dp = row;
@@ -262,6 +322,68 @@ mod tests {
 
     fn spans<const N: usize>(intervals: [(i64, i64); N]) -> Vec<Span> {
         intervals.iter().map(|&(a, b)| Span::new(a, b)).collect()
+    }
+
+    /// The fast prefix-sum [`Coverage`] must return the *exact* same overlap as
+    /// the naive per-span scan ([`overlap_at`]) — it's an optimization, not an
+    /// approximation. A randomized oracle check over many references, cues and
+    /// shifts (deliberately ranging past the reference ends and through the
+    /// boundary cases that trip such code up).
+    #[test]
+    fn coverage_overlap_matches_naive_scan() {
+        // Deterministic xorshift PRNG (keeps the core dependency-free).
+        struct Rng(u64);
+        impl Rng {
+            fn bits(&mut self) -> u64 {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                self.0
+            }
+            fn range(&mut self, n: i64) -> i64 {
+                (self.bits() % n as u64) as i64
+            }
+        }
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+
+        for _ in 0..5_000 {
+            // Build a random reference, then merge it into the sorted, disjoint
+            // form the engine feeds Coverage.
+            let mut t = rng.range(40);
+            let mut raw = Vec::new();
+            for _ in 0..rng.range(7) {
+                t += rng.range(25); // gap (>= 0; 0 means touching)
+                let len = 1 + rng.range(35);
+                raw.push(Span::new(t, t + len));
+                t += len;
+            }
+            let merged = merge_spans(&raw);
+            let coverage = Coverage::new(&merged);
+
+            let a = rng.range(160) - 20;
+            let cue = Span::new(a, a + rng.range(50));
+            let delta = rng.range(120) - 60;
+
+            assert_eq!(
+                coverage.overlap(cue.shifted(delta)),
+                overlap_at(&merged, cue, delta),
+                "mismatch: merged={merged:?} cue={cue:?} delta={delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn coverage_overlap_boundary_cases() {
+        let merged = merge_spans(&spans([(10, 20), (30, 40)]));
+        let c = Coverage::new(&merged);
+        assert_eq!(c.overlap(Span::new(0, 5)), 0); // entirely before
+        assert_eq!(c.overlap(Span::new(50, 60)), 0); // entirely after
+        assert_eq!(c.overlap(Span::new(10, 20)), 10); // exactly one interval
+        assert_eq!(c.overlap(Span::new(20, 30)), 0); // the gap (half-open)
+        assert_eq!(c.overlap(Span::new(15, 35)), 10); // [15,20)=5 + [30,35)=5
+        assert_eq!(c.overlap(Span::new(0, 100)), 20); // spans both + the gap
+        assert_eq!(c.overlap(Span::new(25, 25)), 0); // empty query
+        assert_eq!(Coverage::new(&[]).overlap(Span::new(0, 100)), 0); // empty reference
     }
 
     #[test]
