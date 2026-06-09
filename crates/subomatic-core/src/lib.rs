@@ -19,6 +19,7 @@
 
 pub mod align;
 pub mod ass;
+mod convert;
 pub mod cue;
 pub mod microdvd;
 pub mod srt;
@@ -30,7 +31,9 @@ pub mod vtt;
 /// the MicroDVD fallback rate and the alignment engine's play-rate scan.
 pub(crate) const NTSC_FILM_FPS: f64 = 24_000.0 / 1_001.0;
 
-pub use align::{best_alignment, AlignParams, Alignment, SearchRange};
+pub use align::{
+    best_alignment, best_alignment_with_progress, AlignParams, Alignment, SearchRange,
+};
 pub use cue::{Cue, Format, ParseError, Subtitle};
 #[cfg(feature = "earshot")]
 pub use vad::EarshotVad;
@@ -89,8 +92,21 @@ impl Span {
 /// [`best_alignment`]), then applies the resulting warp — leaving every cue's
 /// payload untouched.
 pub fn sync(subtitle: &Subtitle, reference: &[Span], params: &AlignParams) -> Subtitle {
+    sync_with_progress(subtitle, reference, params, &mut |_| {})
+}
+
+/// [`sync`] that reports alignment progress as a fraction in `0.0..=1.0`, so a
+/// front-end can show a progress bar over the (dominant) alignment search. The
+/// reference spans must already be computed — voice-activity detection, when
+/// used, reports its own progress separately (see [`Vad::detect_with_progress`]).
+pub fn sync_with_progress(
+    subtitle: &Subtitle,
+    reference: &[Span],
+    params: &AlignParams,
+    progress: &mut dyn FnMut(f64),
+) -> Subtitle {
     let cues = subtitle.spans();
-    let alignment = align::best_alignment(reference, &cues, params);
+    let alignment = align::best_alignment_with_progress(reference, &cues, params, progress);
     let mut out = subtitle.clone();
     out.apply_alignment(&alignment);
     out

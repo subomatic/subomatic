@@ -171,6 +171,44 @@ impl Subtitle {
         }
     }
 
+    /// Serialize to a chosen `target` [`Format`], converting the cues' markup and
+    /// header as needed. Identical to [`serialize`](Subtitle::serialize) when
+    /// `target` is the source format; otherwise SubRip↔WebVTT keep their inline
+    /// markup while crossings to/from MicroDVD or ASS flatten to plain text (see
+    /// the `convert` module). `fps` is used only when emitting MicroDVD.
+    pub fn serialize_as(&self, target: Format, fps: f64) -> String {
+        if target == self.format {
+            self.serialize(fps)
+        } else {
+            crate::convert::to_format(self, target).serialize(fps)
+        }
+    }
+
+    /// Append a short attribution cue (e.g. a "synced with …" credit) that plays
+    /// for `duration_ms`, starting `gap_ms` after the last existing cue ends, so
+    /// it shows near the end without overlapping any dialogue. The text is
+    /// encoded for this subtitle's format (a `Dialogue:` line for ASS, plain text
+    /// otherwise). A no-op when there are no cues. Saturating arithmetic keeps the
+    /// inserted times within `i64` bounds.
+    pub fn append_credit(&mut self, text: &str, gap_ms: i64, duration_ms: i64) {
+        let Some(last_end) = self.cues.iter().map(|c| c.end_ms).max() else {
+            return;
+        };
+        let start = last_end.saturating_add(gap_ms);
+        let end = start.saturating_add(duration_ms);
+        // ASS payloads are whole `Dialogue:` lines (timing rewritten on
+        // serialize); every other format stores the text directly.
+        let payload = match self.format {
+            Format::Ass => crate::ass::dialogue_line(text),
+            _ => text.to_string(),
+        };
+        self.cues.push(Cue {
+            start_ms: start,
+            end_ms: end,
+            payload,
+        });
+    }
+
     /// Apply an [`Alignment`] in place: scale every cue by `fps_ratio`, then add
     /// its per-cue offset (saturating). Cues without a matching offset keep the
     /// scaled time. Payloads are never touched.
@@ -214,6 +252,46 @@ mod tests {
             Subtitle::parse(sub.format, &sub.serialize(25.0), 25.0).unwrap(),
             sub
         );
+    }
+
+    #[test]
+    fn append_credit_adds_a_trailing_plain_text_cue() {
+        let mut sub = Subtitle {
+            format: Format::SubRip,
+            header: String::new(),
+            cues: vec![Cue::new(1_000, 2_000, "hi")],
+        };
+        sub.append_credit("Synced with subomatic.github.io", 1_000, 3_000);
+        assert_eq!(sub.cues.len(), 2);
+        let credit = sub.cues.last().unwrap();
+        assert_eq!(credit.start_ms, 3_000); // last end (2000) + 1000 gap
+        assert_eq!(credit.end_ms, 6_000); // + 3000 duration
+        assert_eq!(credit.payload, "Synced with subomatic.github.io");
+    }
+
+    #[test]
+    fn append_credit_on_ass_emits_a_dialogue_line_with_real_timing() {
+        let ass = "[Events]\n\
+                   Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n\
+                   Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hi\n";
+        let mut sub = Subtitle::parse(Format::Ass, ass, 25.0).unwrap();
+        sub.append_credit("synced", 1_000, 3_000);
+        let out = sub.serialize(25.0);
+        assert!(
+            out.contains("Dialogue: 0,0:00:03.00,0:00:06.00,Default,,0,0,0,,synced"),
+            "got {out}"
+        );
+    }
+
+    #[test]
+    fn append_credit_is_a_noop_without_cues() {
+        let mut sub = Subtitle {
+            format: Format::SubRip,
+            header: String::new(),
+            cues: vec![],
+        };
+        sub.append_credit("x", 1_000, 3_000);
+        assert!(sub.cues.is_empty());
     }
 
     #[test]

@@ -1,29 +1,32 @@
 name: Deploy web app to GitHub Pages
 
-# Builds the WASM bundle and publishes web/ to GitHub Pages on every push to
-# main. One-time setup: Settings → Pages → Source: GitHub Actions. This repo is
-# the subomatic.github.io org site, so the result is served at the bare
-# https://subomatic.github.io/.
+# This is the *code* repo (subomatic/subomatic). The website is the Rust core
+# compiled to WASM, so the build lives here. On every push to main we build the
+# bundle and push the contents of web/ to the publish-only repo
+# subomatic/subomatic.github.io, which serves it at the bare
+# https://subomatic.github.io/ (Settings → Pages → Deploy from a branch: main).
+#
+# One-time setup:
+#   • subomatic.github.io: add the deploy *public* key (Settings → Deploy keys,
+#     "Allow write access"); Settings → Pages → Source: Deploy from a branch → main.
+#   • this repo: store the matching *private* key as the PAGES_DEPLOY_KEY secret.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: we only read this repo (checkout). The cross-repo push is
+# authenticated by the SSH deploy key, not GITHUB_TOKEN, so no write scopes here.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: pages-deploy
   cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
       # Pinned to a commit SHA (supply-chain hardening); `# stable` records the
@@ -36,9 +39,26 @@ jobs:
         run: cargo install wasm-pack --locked
       - name: Build the WASM bundle into web/pkg
         run: ./build.sh
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish web/ to subomatic.github.io
+        env:
+          DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          cd web
+          touch .nojekyll                  # serve pkg/ verbatim (skip Jekyll)
+          find . -name .gitignore -delete  # wasm-pack writes pkg/.gitignore '*'
+
+          # Single-commit force-push: the publish repo mirrors the latest build,
+          # so its history doesn't matter and stays tiny.
+          git init -q
+          git checkout -q -b main
+          git add -A
+          git -c user.name='subomatic deploy' \
+              -c user.email='deploy@users.noreply.github.com' \
+              commit -q -m "Deploy ${GITHUB_SHA} from ${GITHUB_REPOSITORY}"
+          git push -f git@github.com:subomatic/subomatic.github.io.git main

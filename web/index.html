@@ -4,62 +4,307 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Subomatic — automatic subtitle sync</title>
+    <title>Subomatic — automatic subtitle sync, in your browser</title>
+    <meta
+      name="description"
+      content="Re-time an out-of-sync subtitle automatically — against a video/audio track's speech or a reference subtitle. Free, private, and entirely in your browser. Nothing is uploaded."
+    />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="./">
+          <span class="logo" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M21 4v4h-4" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+              <path d="M3 20v-4h4" />
+            </svg>
+          </span>
+          Subomatic
+        </a>
+        <nav class="nav-links">
+          <a href="#how">How it works</a>
+          <a href="#faq">FAQ</a>
+          <a href="https://github.com/subomatic/subomatic">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
     <main>
-      <nav class="topbar">
-        <a href="how-it-works.html">How it works</a> ·
-        Open source (Apache-2.0) —
-        <a href="https://github.com/subomatic/subomatic.github.io">view the source on GitHub</a>.
-      </nav>
+      <section class="hero">
+        <div class="wrap">
+          <span class="eyebrow"><span class="dot"></span> 100% in your browser — nothing uploaded</span>
+          <h1>Sync subtitles <span class="grad">automatically</span></h1>
+          <p class="tagline">
+            Re-time an out-of-sync subtitle — to a video or audio track's speech,
+            or to a reference subtitle you already trust. Free, private, and fast.
+          </p>
+          <div class="badges">
+            <span class="badge">No sign-up</span>
+            <span class="badge">No upload</span>
+            <span class="badge">Open source</span>
+            <span class="badge">SRT · VTT · SUB · ASS</span>
+          </div>
+        </div>
 
-      <h1>Subomatic</h1>
-      <p class="tagline">
-        Re-time an out-of-sync subtitle — to a reference subtitle, or to a video
-        or audio track's speech. Everything runs in your browser; nothing is
-        uploaded.
-      </p>
+        <div class="wrap">
+          <form id="sync-form" class="card app-card">
+            <div class="field">
+              <label for="subtitle">Subtitle to fix</label>
+              <input type="file" id="subtitle" accept=".srt,.vtt,.sub,.ass,.ssa" required />
+            </div>
 
-      <form id="sync-form">
-        <label class="field">
-          <span>Subtitle to fix</span>
-          <input type="file" id="subtitle" accept=".srt,.vtt,.sub,.ass,.ssa" required />
-        </label>
+            <fieldset class="field">
+              <legend>Sync against</legend>
+              <div class="segmented">
+                <label>
+                  <input type="radio" name="mode" value="audio" checked />
+                  <span>Video / audio speech</span>
+                </label>
+                <label>
+                  <input type="radio" name="mode" value="reference" />
+                  <span>Reference subtitle</span>
+                </label>
+              </div>
+            </fieldset>
 
-        <fieldset>
-          <legend>Sync against</legend>
-          <label>
-            <input type="radio" name="mode" value="audio" checked />
-            A video or audio file (its speech)
-          </label>
-          <label>
-            <input type="radio" name="mode" value="reference" />
-            A reference subtitle (correct timings)
-          </label>
-        </fieldset>
+            <div class="field-group" id="audio-field">
+              <div class="field">
+                <label for="audio">Video / audio file</label>
+                <input type="file" id="audio" accept="audio/*,video/*" />
+                <p class="field-help">
+                  Subomatic detects where speech happens in the track and lines your subtitle up to it.
+                </p>
+              </div>
+              <div class="field">
+                <label for="vad">Speech detection</label>
+                <select id="vad">
+                  <option value="">Accurate — neural (recommended)</option>
+                  <option value="energy">Fast — loudness only</option>
+                </select>
+                <p class="field-help">
+                  “Accurate” tells speech apart from music &amp; effects. Use “Fast” only for
+                  clean, quiet dialogue.
+                </p>
+              </div>
+            </div>
 
-        <label class="field" id="audio-field">
-          <span>Video / audio file</span>
-          <input type="file" id="audio" accept="audio/*,video/*" />
-        </label>
+            <div class="field hidden" id="reference-field">
+              <label for="reference">Reference subtitle <span class="hint">— one that's already in sync</span></label>
+              <input type="file" id="reference" accept=".srt,.vtt,.sub,.ass,.ssa" />
+              <p class="field-help">
+                Re-times your subtitle to match a subtitle whose timing is
+                <strong>already correct for this exact cut of the film</strong> — most often a
+                working subtitle in <strong>another language</strong>. Only the timing is copied
+                across; the words and language don't matter.
+              </p>
+            </div>
 
-        <label class="field hidden" id="reference-field">
-          <span>Reference subtitle</span>
-          <input type="file" id="reference" accept=".srt,.vtt,.sub,.ass,.ssa" />
-        </label>
+            <div class="field">
+              <label for="output-format">Output format</label>
+              <select id="output-format">
+                <option value="">Same as input</option>
+                <option value="srt">SubRip (.srt)</option>
+                <option value="vtt">WebVTT (.vtt)</option>
+                <option value="sub">MicroDVD (.sub)</option>
+                <option value="ass">ASS / SSA (.ass)</option>
+              </select>
+            </div>
 
-        <label class="field">
-          <span>Frame rate (MicroDVD <code>.sub</code> only)</span>
-          <input type="number" id="fps" value="23.976" step="0.001" min="0.001" />
-        </label>
+            <!-- Shown only when a MicroDVD .sub file is involved (see app.js). -->
+            <div class="field hidden" id="fps-field">
+              <label for="fps">Frame rate</label>
+              <input type="number" id="fps" value="23.976" step="0.001" min="0.001" />
+              <p class="field-help">
+                MicroDVD <code>.sub</code> stores frame numbers, not timestamps, so it needs the
+                video's frame rate to convert them.
+              </p>
+            </div>
 
-        <button type="submit" id="run">Sync</button>
-      </form>
+            <button type="submit" id="run">Sync subtitle</button>
 
-      <p id="status" role="status" aria-live="polite"></p>
+            <div id="progress" class="progress hidden" aria-hidden="true">
+              <div class="progress-head">
+                <span id="progress-label" role="status" aria-live="polite">Working…</span>
+                <span id="progress-pct"></span>
+              </div>
+              <div class="progress-track">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+              <p id="progress-note" class="progress-note"></p>
+            </div>
+
+            <p id="status" role="status" aria-live="polite"></p>
+
+            <button type="button" id="download" class="btn-secondary hidden">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+              </svg>
+              Download synced subtitle
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <section id="formats">
+        <div class="wrap">
+          <h2 class="section-title">Works with your subtitles</h2>
+          <p class="section-sub">
+            Parse and re-emit any of these — and convert between them with the
+            <strong>Output format</strong> picker.
+          </p>
+          <div class="formats">
+            <span class="chip">SubRip <code>.srt</code></span>
+            <span class="chip">WebVTT <code>.vtt</code></span>
+            <span class="chip">MicroDVD <code>.sub</code></span>
+            <span class="chip">SubStation Alpha <code>.ass / .ssa</code></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="wrap">
+          <h2 class="section-title">How it works</h2>
+          <p class="section-sub">
+            Subomatic lines your subtitle up with <em>when speech happens</em> — it
+            never reads the words, so it's completely language-agnostic.
+          </p>
+          <div class="grid">
+            <div class="card tile">
+              <span class="num">1</span>
+              <h3>Decode</h3>
+              <p>Your media is decoded to audio by the browser itself — the file never leaves the page.</p>
+            </div>
+            <div class="card tile">
+              <span class="num">2</span>
+              <h3>Detect speech</h3>
+              <p>A voice-activity detector finds the spans of time where someone is actually talking.</p>
+            </div>
+            <div class="card tile">
+              <span class="num">3</span>
+              <h3>Align</h3>
+              <p>A dynamic program finds the timing shift (and frame-rate fix) that best overlaps the speech.</p>
+            </div>
+            <div class="card tile">
+              <span class="num">4</span>
+              <h3>Rewrite</h3>
+              <p>Only the timings change. Text, styling and positioning round-trip untouched.</p>
+            </div>
+          </div>
+          <p class="section-sub" style="margin-top: 1.5rem">
+            <a href="how-it-works.html">Read the full technical explainer →</a>
+          </p>
+        </div>
+      </section>
+
+      <section id="faq">
+        <div class="wrap">
+          <h2 class="section-title">Frequently asked questions</h2>
+          <div class="faq-list">
+            <details class="faq">
+              <summary>Is anything uploaded? Is it private?</summary>
+              <p>
+                No. Subomatic is a WebAssembly app that runs entirely on your
+                device — your subtitle and media files are never sent anywhere.
+                Once the page has loaded there is no server to talk to.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>Which subtitle formats are supported?</summary>
+              <p>
+                SubRip (<code>.srt</code>), WebVTT (<code>.vtt</code>), MicroDVD
+                (<code>.sub</code>) and SubStation Alpha (<code>.ass</code> /
+                <code>.ssa</code>). By default the output keeps the input's format,
+                but you can pick a different one with <strong>Output format</strong>.
+                Converting between <code>.srt</code> and <code>.vtt</code> keeps
+                inline styling; converting to or from <code>.sub</code>/<code>.ass</code>
+                flattens to plain text.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>What's the difference between the two modes?</summary>
+              <p>
+                <strong>Video / audio speech</strong> listens to the media file,
+                finds when people are talking, and aligns your subtitle to that.
+                <strong>Reference subtitle</strong> instead copies the timing from
+                another subtitle that's <em>already correctly synced for the same
+                cut</em> of the film — most often one in a different language. It
+                never reads or changes the words in either file; only the timing
+                moves, so the languages don't need to match.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>Why did audio mode get the timing wrong on a loud movie?</summary>
+              <p>
+                Make sure <strong>Speech detection</strong> is set to
+                <strong>Accurate</strong>. The “Fast” detector keys on loudness, so on
+                music- and effects-heavy films it can mistake the soundtrack for
+                speech and apply a wrong shift. “Accurate” tells real speech apart
+                from the rest and is the default.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>It says “decoding audio” for a while — is it stuck?</summary>
+              <p>
+                No. Large videos take time for the browser to decode into audio
+                before syncing can start. The progress bar shows each stage
+                (decoding → detecting speech → aligning); the alignment itself runs
+                off the main thread, so the page stays responsive throughout.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>Can it fix frame-rate (PAL speed-up) problems?</summary>
+              <p>
+                Yes. As well as a straight offset, it scans the common play-rate
+                conversions (23.976 / 24 / 25 / 29.97) and corrects the stretch, so
+                a subtitle that slowly drifts out of sync gets fixed too.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>What is the “Frame rate” field for?</summary>
+              <p>
+                Only MicroDVD (<code>.sub</code>) files, which store frame numbers
+                rather than timestamps and so need the video's frame rate to convert
+                them. Every other format ignores it.
+              </p>
+            </details>
+            <details class="faq">
+              <summary>Is there a command-line version?</summary>
+              <p>
+                Yes — the exact same Rust core compiles to a native CLI
+                (<code>subomatic</code>) that can decode media directly and offers
+                extra options like piecewise shifts for ad-breaks.
+                <a href="how-it-works.html">More in the explainer →</a>
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M21 4v4h-4" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+              <path d="M3 20v-4h4" />
+            </svg>
+          </span>
+          Subomatic
+        </div>
+        <div class="footer-links">
+          <a href="how-it-works.html">How it works</a>
+          <a href="#faq">FAQ</a>
+          <a href="https://github.com/subomatic/subomatic">Source (Apache-2.0)</a>
+        </div>
+      </div>
+    </footer>
 
     <script type="module" src="app.js"></script>
   </body>

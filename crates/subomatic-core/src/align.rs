@@ -115,14 +115,19 @@ fn best_index(scores: &[i64], deltas: &[i64]) -> usize {
     best
 }
 
-/// Assign each cue an offset (ms, to add) via the piecewise dynamic program.
+/// Assign each cue an offset (ms, to add) via the piecewise dynamic program,
+/// reporting progress as a fraction in `0.0..=1.0` of cues processed so a caller
+/// (e.g. the WASM/web front-end) can drive a progress bar. The dynamic program
+/// is the dominant cost of a sync, so its inner cue loop is the natural place to
+/// sample progress.
 ///
 /// Returns the per-cue offsets and the alignment's score (total overlap minus
 /// split penalties). See the module docs for the `split_penalty` knob.
-pub(crate) fn align_offsets(
+pub(crate) fn align_offsets_with_progress(
     reference: &[Span],
     cues: &[Span],
     params: &AlignParams,
+    progress: &mut dyn FnMut(f64),
 ) -> (Vec<i64>, i64) {
     if cues.is_empty() {
         return (Vec::new(), 0);
@@ -141,7 +146,8 @@ pub(crate) fn align_offsets(
     // `back[i][k]` = delta-index chosen for cue `i`, given cue `i+1` sits at `k`.
     let mut back: Vec<Vec<usize>> = Vec::with_capacity(cues.len().saturating_sub(1));
 
-    for &cue in &cues[1..] {
+    let total = (cues.len() - 1).max(1) as f64;
+    for (idx, &cue) in cues[1..].iter().enumerate() {
         let prev_best = best_index(&dp, &deltas);
         // Cost of arriving from a *different* previous offset (a split).
         let switch_score = dp[prev_best].saturating_sub(params.split_penalty);
@@ -160,7 +166,13 @@ pub(crate) fn align_offsets(
         }
         dp = row;
         back.push(row_back);
+        // Sample progress every so often (the inner delta loop, not these calls,
+        // is the cost) so the front-end can advance a bar without flooding it.
+        if idx % 64 == 0 {
+            progress((idx + 1) as f64 / total);
+        }
     }
+    progress(1.0);
 
     // Backtrack from the best final cell.
     let mut k = best_index(&dp, &deltas);
@@ -200,17 +212,38 @@ pub fn scale_time(t: i64, ratio: f64) -> i64 {
 /// Find the best [`Alignment`] (frame-rate ratio + per-cue offsets) by scanning
 /// common play-rate ratios and running `align_offsets` for each.
 pub fn best_alignment(reference: &[Span], cues: &[Span], params: &AlignParams) -> Alignment {
+    best_alignment_with_progress(reference, cues, params, &mut |_| {})
+}
+
+/// [`best_alignment`] that reports overall progress as a fraction in `0.0..=1.0`.
+///
+/// The scan tries [`fps_ratios`] in turn, so each ratio owns an equal `1/N`
+/// slice of the bar and the per-cue progress from `align_offsets_with_progress`
+/// fills that slice — giving smooth, monotonic forward motion across the whole
+/// search.
+pub fn best_alignment_with_progress(
+    reference: &[Span],
+    cues: &[Span],
+    params: &AlignParams,
+    progress: &mut dyn FnMut(f64),
+) -> Alignment {
     let mut best = Alignment {
         fps_ratio: 1.0,
         offsets: vec![0; cues.len()],
         score: i64::MIN,
     };
-    for ratio in fps_ratios() {
+    let ratios = fps_ratios();
+    let n = ratios.len() as f64;
+    for (i, ratio) in ratios.into_iter().enumerate() {
         let scaled: Vec<Span> = cues
             .iter()
             .map(|c| Span::new(scale_time(c.start, ratio), scale_time(c.end, ratio)))
             .collect();
-        let (offsets, score) = align_offsets(reference, &scaled, params);
+        let base = i as f64 / n;
+        let (offsets, score) =
+            align_offsets_with_progress(reference, &scaled, params, &mut |local| {
+                progress(base + local / n);
+            });
         if score > best.score {
             best = Alignment {
                 fps_ratio: ratio,
@@ -219,6 +252,7 @@ pub fn best_alignment(reference: &[Span], cues: &[Span], params: &AlignParams) -
             };
         }
     }
+    progress(1.0);
     best
 }
 
@@ -257,7 +291,7 @@ mod tests {
             range: SearchRange::default(),
             split_penalty: 200,
         };
-        let (offsets, _) = align_offsets(&reference, &cues, &params);
+        let (offsets, _) = align_offsets_with_progress(&reference, &cues, &params, &mut |_| {});
 
         for (i, &off) in offsets.iter().enumerate() {
             let expected = if i < 3 { -1_000 } else { -4_000 };
@@ -273,7 +307,8 @@ mod tests {
         let reference = spans([(1_000, 2_000), (5_000, 6_000), (9_000, 10_000)]);
         let cues: Vec<Span> = reference.iter().map(|s| s.shifted(1_500)).collect();
 
-        let (offsets, _) = align_offsets(&reference, &cues, &AlignParams::default());
+        let (offsets, _) =
+            align_offsets_with_progress(&reference, &cues, &AlignParams::default(), &mut |_| {});
 
         assert!(offsets.iter().all(|&o| o == offsets[0]), "offsets differ");
         assert!((offsets[0] + 1_500).abs() <= SearchRange::default().step);
@@ -281,10 +316,42 @@ mod tests {
 
     #[test]
     fn align_with_no_cues_is_empty() {
-        let (offsets, score) =
-            align_offsets(&spans([(0, 1_000)]), &spans([]), &AlignParams::default());
+        let (offsets, score) = align_offsets_with_progress(
+            &spans([(0, 1_000)]),
+            &spans([]),
+            &AlignParams::default(),
+            &mut |_| {},
+        );
         assert!(offsets.is_empty());
         assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn progress_is_monotonic_bounded_and_matches_plain_result() {
+        let reference = spans([(1_000, 2_000), (5_000, 6_000), (9_000, 10_000)]);
+        let cues: Vec<Span> = reference.iter().map(|s| s.shifted(1_500)).collect();
+
+        let mut seen: Vec<f64> = Vec::new();
+        let with =
+            best_alignment_with_progress(&reference, &cues, &AlignParams::default(), &mut |f| {
+                seen.push(f)
+            });
+
+        assert!(!seen.is_empty(), "no progress reported");
+        assert!(
+            seen.iter().all(|&f| (0.0..=1.0).contains(&f)),
+            "progress out of [0,1]: {seen:?}"
+        );
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0]),
+            "progress not monotonic: {seen:?}"
+        );
+        assert_eq!(seen.last(), Some(&1.0), "progress must end at 1.0");
+        // Reporting progress must not change the alignment the plain path finds.
+        assert_eq!(
+            with,
+            best_alignment(&reference, &cues, &AlignParams::default())
+        );
     }
 
     #[test]

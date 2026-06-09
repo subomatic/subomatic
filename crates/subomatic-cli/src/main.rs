@@ -45,6 +45,30 @@ enum VadKind {
     Earshot,
 }
 
+/// Output subtitle format for `sync` (the `--to` flag).
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum OutFormat {
+    /// SubRip (`.srt`).
+    Srt,
+    /// WebVTT (`.vtt`).
+    Vtt,
+    /// MicroDVD (`.sub`), frame-based.
+    Sub,
+    /// Advanced SubStation Alpha (`.ass`/`.ssa`).
+    Ass,
+}
+
+impl OutFormat {
+    fn to_core(self) -> Format {
+        match self {
+            OutFormat::Srt => Format::SubRip,
+            OutFormat::Vtt => Format::WebVtt,
+            OutFormat::Sub => Format::MicroDvd,
+            OutFormat::Ass => Format::Ass,
+        }
+    }
+}
+
 #[derive(Args)]
 #[command(group(ArgGroup::new("source").required(true).args(["reference", "audio"])))]
 struct SyncArgs {
@@ -66,6 +90,11 @@ struct SyncArgs {
     /// Where to write the synced subtitle (default: stdout).
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Output format. Defaults to the input's format, or — when `--output` names
+    /// a recognized subtitle file — that file's extension.
+    #[arg(long = "to", value_enum)]
+    to: Option<OutFormat>,
 
     /// Frame rate used for MicroDVD (.sub) files.
     #[arg(long, default_value_t = microdvd::DEFAULT_FPS, value_parser = parse_fps)]
@@ -128,13 +157,27 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn Error>> {
     };
     let synced = sync(&subtitle, &reference_spans, &params);
 
-    let output_text = synced.serialize(args.fps);
+    let output_text = synced.serialize_as(resolve_out_format(&args, format), args.fps);
     match args.output {
         Some(path) => std::fs::write(path, output_text)?,
         // Write directly (not `print!`) so a broken pipe is a clean error, not a panic.
         None => std::io::stdout().lock().write_all(output_text.as_bytes())?,
     }
     Ok(())
+}
+
+/// The output format for `sync`: an explicit `--to`, else the extension of
+/// `--output` if it names a recognized subtitle file, else the input's format.
+fn resolve_out_format(args: &SyncArgs, input_format: Format) -> Format {
+    if let Some(to) = args.to {
+        return to.to_core();
+    }
+    args.output
+        .as_deref()
+        .and_then(Path::extension)
+        .and_then(|e| e.to_str())
+        .and_then(Format::from_extension)
+        .unwrap_or(input_format)
 }
 
 /// Reference activity spans from whichever source was given (the clap group
@@ -252,6 +295,46 @@ mod tests {
         assert_eq!(detect_format(Path::new("a.ass")).unwrap(), Format::Ass);
         assert!(detect_format(Path::new("a.txt")).is_err());
         assert!(detect_format(Path::new("noext")).is_err());
+    }
+
+    fn sync_args(output: Option<&str>, to: Option<OutFormat>) -> SyncArgs {
+        SyncArgs {
+            input: PathBuf::from("in.srt"),
+            reference: Some(PathBuf::from("ref.srt")),
+            audio: None,
+            vad: VadKind::Energy,
+            output: output.map(PathBuf::from),
+            to,
+            fps: 25.0,
+            split_penalty: None,
+        }
+    }
+
+    #[test]
+    fn resolve_out_format_precedence() {
+        // No --to, no --output: keep the input's format.
+        assert_eq!(
+            resolve_out_format(&sync_args(None, None), Format::SubRip),
+            Format::SubRip
+        );
+        // A recognized --output extension is inferred when --to is absent.
+        assert_eq!(
+            resolve_out_format(&sync_args(Some("o.vtt"), None), Format::SubRip),
+            Format::WebVtt
+        );
+        // An unrecognized --output extension falls back to the input format.
+        assert_eq!(
+            resolve_out_format(&sync_args(Some("o.txt"), None), Format::SubRip),
+            Format::SubRip
+        );
+        // --to wins over everything else.
+        assert_eq!(
+            resolve_out_format(
+                &sync_args(Some("o.vtt"), Some(OutFormat::Ass)),
+                Format::SubRip
+            ),
+            Format::Ass
+        );
     }
 
     #[test]

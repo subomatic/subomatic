@@ -14,6 +14,22 @@ pub trait Vad {
     /// Detect speech [`Span`]s in mono `samples` (f32 in roughly `[-1.0, 1.0]`)
     /// sampled at `sample_rate` Hz.
     fn detect(&self, samples: &[f32], sample_rate: u32) -> Vec<Span>;
+
+    /// [`detect`](Vad::detect) that reports progress as a fraction in
+    /// `0.0..=1.0`, letting a front-end drive a progress bar while a long track
+    /// is scanned. The default runs `detect` and reports completion in one step;
+    /// detectors with a cheap-to-sample main loop (e.g. [`EnergyVad`]) override
+    /// this to report incrementally.
+    fn detect_with_progress(
+        &self,
+        samples: &[f32],
+        sample_rate: u32,
+        progress: &mut dyn FnMut(f64),
+    ) -> Vec<Span> {
+        let spans = self.detect(samples, sample_rate);
+        progress(1.0);
+        spans
+    }
 }
 
 /// A simple energy-threshold voice-activity detector.
@@ -51,7 +67,17 @@ impl Default for EnergyVad {
 
 impl Vad for EnergyVad {
     fn detect(&self, samples: &[f32], sample_rate: u32) -> Vec<Span> {
+        self.detect_with_progress(samples, sample_rate, &mut |_| {})
+    }
+
+    fn detect_with_progress(
+        &self,
+        samples: &[f32],
+        sample_rate: u32,
+        progress: &mut dyn FnMut(f64),
+    ) -> Vec<Span> {
         if samples.is_empty() || sample_rate == 0 {
+            progress(1.0);
             return Vec::new();
         }
         let sample_rate = i64::from(sample_rate);
@@ -59,17 +85,21 @@ impl Vad for EnergyVad {
             (i64::from(self.frame_ms).saturating_mul(sample_rate) / 1000).max(1) as usize;
         let total_samples = samples.len() as i64;
 
-        // RMS energy per frame; non-finite samples contribute no energy.
-        let energies: Vec<f32> = samples
-            .chunks(frame_len)
-            .map(|frame| {
-                let sum_sq: f32 = frame
-                    .iter()
-                    .map(|&s| if s.is_finite() { s * s } else { 0.0 })
-                    .sum();
-                (sum_sq / frame.len() as f32).sqrt()
-            })
-            .collect();
+        // RMS energy per frame; non-finite samples contribute no energy. This
+        // single linear pass is the bulk of the work, so we sample progress
+        // across it (sparsely — the work is the arithmetic, not these calls).
+        let num_frames = samples.len().div_ceil(frame_len);
+        let mut energies: Vec<f32> = Vec::with_capacity(num_frames);
+        for (i, frame) in samples.chunks(frame_len).enumerate() {
+            let sum_sq: f32 = frame
+                .iter()
+                .map(|&s| if s.is_finite() { s * s } else { 0.0 })
+                .sum();
+            energies.push((sum_sq / frame.len() as f32).sqrt());
+            if i & 8191 == 0 {
+                progress(i as f64 / num_frames as f64);
+            }
+        }
 
         let mean = energies.iter().sum::<f32>() / energies.len() as f32;
         let threshold = mean * self.threshold_factor;
@@ -99,6 +129,7 @@ impl Vad for EnergyVad {
             }
         }
 
+        progress(1.0);
         merge_and_filter(spans, self.merge_gap_ms, self.min_speech_ms)
     }
 }
@@ -153,10 +184,20 @@ impl Default for EarshotVad {
 #[cfg(feature = "earshot")]
 impl Vad for EarshotVad {
     fn detect(&self, samples: &[f32], sample_rate: u32) -> Vec<Span> {
+        self.detect_with_progress(samples, sample_rate, &mut |_| {})
+    }
+
+    fn detect_with_progress(
+        &self,
+        samples: &[f32],
+        sample_rate: u32,
+        progress: &mut dyn FnMut(f64),
+    ) -> Vec<Span> {
         // earshot's fixed frame: 256 samples = 16 ms at 16 kHz.
         const FRAME: usize = 256;
         const FRAME_MS: i64 = 16;
         if samples.is_empty() || sample_rate == 0 {
+            progress(1.0);
             return Vec::new();
         }
 
@@ -165,6 +206,7 @@ impl Vad for EarshotVad {
 
         // Walk fixed frames, recording runs of above-threshold (speech) frames.
         // Frame `i` spans `[i, i+1) * FRAME_MS` on the original timeline.
+        let num_frames = (audio.len() / FRAME).max(1);
         let mut spans: Vec<Span> = Vec::new();
         let mut run_start: Option<usize> = None;
         for (idx, frame) in audio.chunks_exact(FRAME).enumerate() {
@@ -177,6 +219,9 @@ impl Vad for EarshotVad {
                 }
                 _ => {}
             }
+            if idx & 8191 == 0 {
+                progress(idx as f64 / num_frames as f64);
+            }
         }
         if let Some(start) = run_start {
             // Extend a still-open run to the true end of the audio, so speech that
@@ -185,6 +230,7 @@ impl Vad for EarshotVad {
             let end_ms = audio.len() as i64 * 1000 / 16_000;
             spans.push(Span::new(start as i64 * FRAME_MS, end_ms));
         }
+        progress(1.0);
 
         merge_and_filter(spans, self.merge_gap_ms, self.min_speech_ms)
     }

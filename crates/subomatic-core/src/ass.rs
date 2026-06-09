@@ -190,6 +190,87 @@ fn rewrite_event(line: &str, columns: Option<Columns>, start_ms: i64, end_ms: i6
     format!("{prefix}{}", fields.join(","))
 }
 
+/// A minimal but valid ASS preamble for subtitles *converted* from another
+/// format (which carry no ASS styling of their own). Holds a single `Default`
+/// style and an `[Events]` `Format:` line whose columns match [`dialogue_line`]
+/// (Start at index 1, End at 2, Text last). No trailing newline — [`serialize`]
+/// adds the separator before the events.
+pub(crate) const DEFAULT_HEADER: &str = "[Script Info]
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text";
+
+/// Build a `Dialogue:` line for `text` under [`DEFAULT_HEADER`]'s layout, with
+/// placeholder timing ([`serialize`] rewrites Start/End from the cue). Newlines
+/// become ASS hard breaks (`\N`); the text is the last field, so its commas are
+/// harmless.
+pub(crate) fn dialogue_line(text: &str) -> String {
+    format!(
+        "Dialogue: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,,{}",
+        text.replace('\n', "\\N")
+    )
+}
+
+/// The `(index, field_count)` of the `Text` column, from the last `Format:` line
+/// that declares one (the `[Events]` line — `[V4+ Styles]` has no `Text`).
+fn text_column(header: &str) -> Option<(usize, usize)> {
+    header.lines().rev().find_map(|line| {
+        let trimmed = line.trim_start();
+        let rest = trimmed
+            .get(..7)
+            .filter(|p| p.eq_ignore_ascii_case("Format:"))
+            .map(|_| &trimmed[7..])?;
+        let names: Vec<String> = rest
+            .split(',')
+            .map(|n| n.trim().to_ascii_lowercase())
+            .collect();
+        let idx = names.iter().position(|n| n == "text")?;
+        Some((idx, names.len()))
+    })
+}
+
+/// Extract the plain display text of one event `line` (locating the Text field
+/// via `header`'s columns), dropping `{\...}` override blocks and turning ASS
+/// escapes into plain text (`\N`/`\n` → newline, `\h` → space). Used when
+/// converting an ASS subtitle into a format that can't carry its styling.
+pub(crate) fn event_plain_text(header: &str, line: &str) -> String {
+    let field = text_column(header)
+        .and_then(|(idx, count)| Some(split_event(line, count)?.1.get(idx)?.to_string()));
+    clean_text(field.as_deref().unwrap_or(line))
+}
+
+/// Strip ASS override blocks and decode the common escapes to plain text.
+fn clean_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut depth: u32 = 0;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth > 0 => depth -= 1,
+            _ if depth > 0 => {}
+            '\\' => match chars.peek() {
+                Some('N') | Some('n') => {
+                    out.push('\n');
+                    chars.next();
+                }
+                Some('h') => {
+                    out.push(' ');
+                    chars.next();
+                }
+                _ => out.push('\\'),
+            },
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
