@@ -5,6 +5,7 @@ members = [
     "crates/subomatic-core",
     "crates/subomatic-opensubtitles",
     "crates/subomatic-wasm",
+    "src-tauri",
 ]
 
 [workspace.package]

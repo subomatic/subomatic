@@ -98,7 +98,7 @@ jobs:
       - name: Build the CLI
         run: cargo build --release -p subomatic-cli --target ${{ matrix.target }}
       # Optional: sign + notarize the macOS binary with the StarData Developer ID
-      # cert (team T4552AW4A5). Skipped unless the APPLE_* secrets are set. A bare
+      # cert (the configured Apple team). Skipped unless the APPLE_* secrets are set. A bare
       # executable can't be stapled, so we notarize a zip of it — Apple records
       # the binary's hash and Gatekeeper passes on first online check. (The Mac
       # App Store path wraps this in a Tauri .app under bundle id

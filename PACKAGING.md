@@ -52,7 +52,7 @@ signing step; configure the secrets to activate it:
   `notarytool submit`) that runs only when all five of these repository secrets
   are set: `APPLE_CERTIFICATE` (base64 of the Developer ID Application `.p12`),
   `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` (an app-specific
-  password), and `APPLE_TEAM_ID` (`T4552AW4A5`). A bare executable can't be
+  password), and `APPLE_TEAM_ID`. A bare executable can't be
   stapled, so the step notarizes a zip of it — Apple records the binary's hash and
   Gatekeeper passes on first online check. Generate the cert secret with
   `openssl pkcs12 -export -legacy -inkey devid.key -in devid.cer -out devid.p12`
