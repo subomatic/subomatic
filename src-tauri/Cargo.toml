@@ -1,6 +1,6 @@
 [package]
 name = "subomatic-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Subomatic — native desktop app for automatic subtitle synchronization"
 edition.workspace = true
 license.workspace = true
