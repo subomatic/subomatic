@@ -65,45 +65,32 @@ else
   echo ">> WARNING: signing identity not in keychain — building AD-HOC (Gatekeeper will warn)" >&2
 fi
 
-echo ">> building macOS bundle (app + updater artifact)"
-# `env` is required: the MAC_SIGN_ENV array holds VAR=value strings, and bash
-# only treats VAR=value as an assignment when it's a literal at parse time — an
-# array element would instead be run as a command ("…: command not found").
+echo ">> building macOS bundle (app + styled dmg + updater artifact)"
+# `env` is required: MAC_SIGN_ENV holds VAR=value strings, which bash only treats
+# as assignments when literal at parse time (an array element would be run as a
+# command). ${arr[@]+"${arr[@]}"} is bash-3.2-safe when the array is empty under
+# `set -u` (the runner's bash). --bundles app,dmg makes Tauri build the STYLED
+# .dmg (background + /Applications drag target from tauri.conf bundle.macOS.dmg)
+# and — with the notary creds in MAC_SIGN_ENV — sign + notarize + staple it.
 (cd "${ROOT}" && env TAURI_SIGNING_PRIVATE_KEY="${UPDATER_KEY}" \
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-  "${MAC_SIGN_ENV[@]}" npx tauri build --bundles app)
+  ${MAC_SIGN_ENV[@]+"${MAC_SIGN_ENV[@]}"} npx tauri build --bundles app,dmg)
 
 # subomatic's Cargo workspace is at the repo ROOT (src-tauri is a member), so
-# tauri/cargo emit artifacts to <root>/target — NOT src-tauri/target (which is
-# where marie/betterwheel, whose workspace lives inside src-tauri, put them).
+# tauri/cargo emit artifacts to <root>/target — NOT src-tauri/target.
 BUNDLE_DIR="${ROOT}/target/release/bundle"
 MAC_APP="${BUNDLE_DIR}/macos/Subomatic.app"
 MAC_TARGZ="${BUNDLE_DIR}/macos/Subomatic.app.tar.gz"
 [ -f "${MAC_TARGZ}.sig" ] || { echo "error: updater artifact sig missing — is createUpdaterArtifacts on?" >&2; exit 1; }
 MAC_SIG="$(cat "${MAC_TARGZ}.sig")"
 
-# Roll the .dmg by hand (tauri's dmg bundler drives Finder via AppleScript and
-# fails headless), then notarize + staple it so the downloaded image passes
-# Gatekeeper offline (the .app inside is already notarized).
+# Copy Tauri's styled, notarized DMG to our stable name; re-staple defensively
+# (a no-op if Tauri already stapled it).
 MAC_DMG="${BUNDLE_DIR}/macos/subomatic-${VERSION}-macos-arm64.dmg"
-# Stage the .app next to an /Applications symlink so the mounted DMG offers a
-# drag-to-Applications target (the standard macOS install UX).
-DMG_STAGE="$(mktemp -d)"
-cp -R "${MAC_APP}" "${DMG_STAGE}/"
-ln -s /Applications "${DMG_STAGE}/Applications"
-hdiutil create -quiet -volname "Subomatic" -srcfolder "${DMG_STAGE}" -ov -format UDZO "${MAC_DMG}"
-rm -rf "${DMG_STAGE}"
-if [ "${NOTARIZE}" = "1" ]; then
-  echo ">> notarizing + stapling the DMG"
-  if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
-    xcrun notarytool submit "${MAC_DMG}" \
-      --key "${APPLE_API_KEY_PATH}" --key-id "${APPLE_API_KEY_ID}" --issuer "${APPLE_API_ISSUER}" --wait
-  else
-    xcrun notarytool submit "${MAC_DMG}" \
-      --apple-id "${APPLE_ID}" --password "${APPLE_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait
-  fi
-  xcrun stapler staple "${MAC_DMG}"
-fi
+SRC_DMG="$(ls -t "${BUNDLE_DIR}/dmg/"*.dmg 2>/dev/null | head -1)"
+[ -n "${SRC_DMG}" ] && [ -f "${SRC_DMG}" ] || { echo "error: tauri produced no .dmg in ${BUNDLE_DIR}/dmg" >&2; exit 1; }
+cp "${SRC_DMG}" "${MAC_DMG}"
+[ "${NOTARIZE}" = "1" ] && xcrun stapler staple "${MAC_DMG}" 2>/dev/null || true
 
 echo ">> generating latest.json"
 LATEST="${ROOT}/target/latest.json"
