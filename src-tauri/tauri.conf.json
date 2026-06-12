@@ -8,7 +8,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklEazRRamMyT1VRME5qWXdNekZDUWpBS1VsZFRkMGQzVG0weFIyMHpiVWRTZFVOaVVFcEljMHh5VFVoNUwxVmtUMDVETUdweGNUZE5SRGM1YTBKR01EQnZOblZqWlZOTmRYY0s=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4Qjc2OUQ0NjYwMzFCQjAKUldTd0d3Tm0xR20zbUdSdUNiUEpIc0xyTUh5L1VkT05DMGpxcTdNRDc5a0JGMDBvNnVjZVNNdXcK",
       "endpoints": [
         "https://github.com/subomatic/subomatic/releases/latest/download/latest.json"
       ],
