@@ -104,7 +104,10 @@ rm -f "${MAC_DMG}"
 (cd "${ROOT}" && npx --yes appdmg "${APPDMG_SPEC}" "${MAC_DMG}")
 rm -f "${APPDMG_SPEC}"
 if [ "${NOTARIZE}" = "1" ]; then
-  echo ">> notarizing + stapling the DMG"
+  echo ">> signing + notarizing + stapling the DMG"
+  # Sign the DMG itself (appdmg leaves it unsigned) so Gatekeeper has a usable
+  # signature; then notarize + staple. Order: sign -> notarize -> staple.
+  codesign --force --timestamp --sign "${DEVID}" "${MAC_DMG}"
   if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
     xcrun notarytool submit "${MAC_DMG}" \
       --key "${APPLE_API_KEY_PATH}" --key-id "${APPLE_API_KEY_ID}" --issuer "${APPLE_API_ISSUER}" --wait
