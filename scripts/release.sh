@@ -66,7 +66,10 @@ else
 fi
 
 echo ">> building macOS bundle (app + updater artifact)"
-(cd "${ROOT}" && TAURI_SIGNING_PRIVATE_KEY="${UPDATER_KEY}" \
+# `env` is required: the MAC_SIGN_ENV array holds VAR=value strings, and bash
+# only treats VAR=value as an assignment when it's a literal at parse time — an
+# array element would instead be run as a command ("…: command not found").
+(cd "${ROOT}" && env TAURI_SIGNING_PRIVATE_KEY="${UPDATER_KEY}" \
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
   "${MAC_SIGN_ENV[@]}" npx tauri build --bundles app)
 
