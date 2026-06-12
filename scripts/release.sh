@@ -86,7 +86,13 @@ MAC_SIG="$(cat "${MAC_TARGZ}.sig")"
 # fails headless), then notarize + staple it so the downloaded image passes
 # Gatekeeper offline (the .app inside is already notarized).
 MAC_DMG="${BUNDLE_DIR}/macos/subomatic-${VERSION}-macos-arm64.dmg"
-hdiutil create -quiet -volname "Subomatic" -srcfolder "${MAC_APP}" -ov -format UDZO "${MAC_DMG}"
+# Stage the .app next to an /Applications symlink so the mounted DMG offers a
+# drag-to-Applications target (the standard macOS install UX).
+DMG_STAGE="$(mktemp -d)"
+cp -R "${MAC_APP}" "${DMG_STAGE}/"
+ln -s /Applications "${DMG_STAGE}/Applications"
+hdiutil create -quiet -volname "Subomatic" -srcfolder "${DMG_STAGE}" -ov -format UDZO "${MAC_DMG}"
+rm -rf "${DMG_STAGE}"
 if [ "${NOTARIZE}" = "1" ]; then
   echo ">> notarizing + stapling the DMG"
   if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
@@ -120,11 +126,13 @@ EOF
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
 cp "${MAC_DMG}" "${STAGE}/subomatic-${VERSION}-macos-arm64.dmg"
+cp "${MAC_DMG}" "${STAGE}/subomatic-latest.dmg"   # stable, versionless link for salamacchine.it
 cp "${MAC_TARGZ}" "${STAGE}/subomatic-macos-arm64.app.tar.gz"
 cp "${LATEST}" "${STAGE}/latest.json"
 
 REL_ASSETS=(
   "${STAGE}/subomatic-${VERSION}-macos-arm64.dmg"
+  "${STAGE}/subomatic-latest.dmg"
   "${STAGE}/subomatic-macos-arm64.app.tar.gz"
   "${STAGE}/latest.json"
 )
