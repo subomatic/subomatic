@@ -42,13 +42,24 @@ prudent (same caveat as the clean-room engine).
 
 ## 3. Desktop apps — Mac App Store & Windows
 
-**Unsigned CLI binaries are already automated:** push a tag `vX.Y.Z` and
+**CLI binary builds are already automated:** push a tag `vX.Y.Z` and
 `.github/workflows/release.yml` builds macOS (arm64/x64), Windows (x64), and
-Linux (x64) binaries. Then sign for distribution:
+Linux (x64) binaries. macOS and Windows each have an optional, secrets-gated
+signing step; configure the secrets to activate it:
 
-- **macOS:** `codesign` + notarize (`notarytool`) with a Developer ID; for the
-  App Store, wrap the binary (or the Tauri app below) in a bundle and submit via
-  App Store Connect. Requires a paid Apple Developer account.
+- **macOS.** `release.yml` already has an *optional, secrets-gated* step
+  (`apple-actions/import-codesign-certs` → `codesign --options runtime` →
+  `notarytool submit`) that runs only when all five of these repository secrets
+  are set: `APPLE_CERTIFICATE` (base64 of the Developer ID Application `.p12`),
+  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` (an app-specific
+  password), and `APPLE_TEAM_ID`. A bare executable can't be
+  stapled, so the step notarizes a zip of it — Apple records the binary's hash and
+  Gatekeeper passes on first online check. Generate the cert secret with
+  `openssl pkcs12 -export -legacy -inkey devid.key -in devid.cer -out devid.p12`
+  then `base64 -i devid.p12 | gh secret set APPLE_CERTIFICATE`. For the App Store,
+  wrap the binary (or the Tauri app below) in a bundle under bundle id
+  `it.salamacchine.subomatic` and submit via App Store Connect. Requires the paid
+  Stardata s.r.l. Apple Developer account.
 
 - **Windows.** Since June 2023 a publicly-trusted code-signing key must live on
   FIPS-140 hardware (an HSM / USB token or a cloud HSM), which shapes the options:

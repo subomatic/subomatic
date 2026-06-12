@@ -1,11 +1,13 @@
 name: Release binaries
 
-# Builds unsigned `subomatic` CLI binaries for the desktop targets on a version
-# tag (or manual run). The CLI links libav (LGPL) via FFI, so each runner installs
-# libav + libclang below. NOTE: these link the runner's *system* libav to produce
-# test/dev binaries. Binaries for public distribution must link an LGPL
-# (`--disable-gpl`) libav and then be signed/notarized — see PACKAGING.md.
-# (Homebrew's ffmpeg is GPL-configured, so the macOS artifacts here are dev-only.)
+# Builds `subomatic` CLI binaries for the desktop targets on a version tag (or
+# manual run). macOS binaries are signed with the StarData Developer ID cert +
+# notarized when the APPLE_* secrets below are set (skipped otherwise). The CLI
+# links libav (LGPL) via FFI, so each runner installs libav + libclang below.
+# NOTE: these link the runner's *system* libav to produce test/dev binaries.
+# Binaries for public distribution must link an LGPL (`--disable-gpl`) libav —
+# see PACKAGING.md. (Homebrew's ffmpeg is GPL-configured, so the macOS artifacts
+# here are dev-only until that libav is pinned.)
 on:
   push:
     tags: ["v*"]
@@ -47,6 +49,13 @@ jobs:
         secrets.AZURE_TRUSTED_SIGNING_ENDPOINT != '' &&
         secrets.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
         secrets.AZURE_TRUSTED_SIGNING_PROFILE != '' }}
+      # Same all-or-nothing gate for macOS Developer ID signing + notarization.
+      MACOS_SIGNING_ENABLED: ${{
+        secrets.APPLE_CERTIFICATE != '' &&
+        secrets.APPLE_CERTIFICATE_PASSWORD != '' &&
+        secrets.APPLE_ID != '' &&
+        secrets.APPLE_APP_PASSWORD != '' &&
+        secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v5
       # Pinned to a commit SHA (supply-chain hardening); `# stable` records the
@@ -88,6 +97,35 @@ jobs:
           echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
       - name: Build the CLI
         run: cargo build --release -p subomatic-cli --target ${{ matrix.target }}
+      # Optional: sign + notarize the macOS binary with the StarData Developer ID
+      # cert (the configured Apple team). Skipped unless the APPLE_* secrets are set. A bare
+      # executable can't be stapled, so we notarize a zip of it — Apple records
+      # the binary's hash and Gatekeeper passes on first online check. (The Mac
+      # App Store path wraps this in a Tauri .app under bundle id
+      # it.salamacchine.subomatic — see PACKAGING.md — and is not wired here.)
+      - name: Import Developer ID cert (macOS, if configured)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_ENABLED == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Sign + notarize the macOS binary (if configured)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          BIN="target/${TARGET}/release/subomatic"
+          codesign --force --options runtime --timestamp \
+            --sign "Developer ID Application" "$BIN"
+          codesign --verify --strict --verbose=2 "$BIN"
+          ditto -c -k "$BIN" "$RUNNER_TEMP/subomatic.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/subomatic.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait
       # Optional: sign the Windows .exe with Azure Trusted Signing (Microsoft's
       # managed cloud HSM — no physical token). Skipped unless the secrets below
       # are configured. See PACKAGING.md for getting an account and for the

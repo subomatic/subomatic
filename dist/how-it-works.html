@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How Subomatic works</title>
+    <meta
+      name="description"
+      content="How Subomatic re-times subtitles: a pure-Rust alignment engine compiled to WebAssembly, running entirely in your browser. Why it's reliable and why it's fast."
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <div class="wrap prose">
+        <a class="back" href="./">&larr; Back to the app</a>
+
+      <h1>How Subomatic works</h1>
+      <p class="lead">
+        Subomatic re-times an out-of-sync subtitle automatically — no manual
+        anchor points. It lines the subtitle up with <em>when speech happens</em>,
+        either in a reference subtitle you already trust or in the audio of the
+        video itself. Everything below runs locally, in your browser.
+      </p>
+
+      <h2>The pipeline</h2>
+      <ol>
+        <li>
+          <strong>Decode (audio mode).</strong> Your media file is decoded by the
+          browser's native <code>WebAudio</code> engine into a mono PCM signal.
+          This is the same optimized (often hardware-accelerated) decoder the
+          browser uses to play video, so any format it can play, Subomatic can
+          read — and the file never leaves the page.
+        </li>
+        <li>
+          <strong>Detect speech.</strong> A voice-activity detector turns that
+          waveform into a sparse set of <em>speech intervals</em> — the spans of
+          time where someone is actually talking. (In <em>reference mode</em> this
+          step is skipped: the reference subtitle's own cue timings are the
+          intervals.)
+        </li>
+        <li>
+          <strong>Align.</strong> The engine treats both sides — the reference
+          intervals and your subtitle's lines — as sets of time intervals, and
+          searches for the timing correction that makes them overlap as much as
+          possible.
+        </li>
+        <li>
+          <strong>Rewrite.</strong> The chosen correction is applied to the cue
+          timestamps and the subtitle is serialized back to the
+          <em>same format it came in</em>. Only the timing changes — text,
+          styling, positioning and karaoke all round-trip untouched.
+        </li>
+      </ol>
+
+      <h2>Written in Rust, compiled to WebAssembly, running in your browser</h2>
+      <p>
+        There is no server. The whole thing is a single <strong>pure-Rust
+        core</strong> — the subtitle parsers/serializers (SubRip
+        <code>.srt</code>, WebVTT <code>.vtt</code>, MicroDVD <code>.sub</code>,
+        ASS/SSA), the voice-activity detector, the alignment engine and the timing
+        warp — with zero platform or audio dependencies and
+        <code>#![forbid(unsafe_code)]</code>. Because it's dependency-free, the
+        <em>exact same code</em> compiles two ways: to a native command-line tool,
+        and to <strong>WebAssembly</strong> (a ~120&nbsp;KB <code>.wasm</code>
+        module) for the web.
+      </p>
+      <p>
+        In the browser, a thin JavaScript shell wires up the file pickers and
+        calls two functions exported from the WASM module
+        (<code>sync_to_reference</code> and <code>sync_to_audio</code>); the PCM is
+        handed across as a <code>Float32Array</code> with no copying or
+        serialization. Decoding deliberately lives <em>outside</em> the Rust core —
+        the browser does it with WebAudio — which is exactly what keeps the core
+        small, portable and WASM-clean. The page is just static files
+        (HTML&nbsp;+&nbsp;CSS&nbsp;+&nbsp;JS&nbsp;+&nbsp;the <code>.wasm</code>)
+        served from GitHub Pages, so once it has loaded there is no backend to talk
+        to and nothing to upload.
+      </p>
+
+      <h2>Why it's reliable</h2>
+      <ul>
+        <li>
+          <strong>It never reads the words.</strong> Alignment is driven purely by
+          <em>when</em> there is sound, not by text, OCR or transcription. That
+          makes it completely language-agnostic — the script, the encoding and the
+          translation can't trip it up, because none of them are involved.
+        </li>
+        <li>
+          <strong>It optimizes over the whole timeline at once.</strong> The
+          correction is chosen by a dynamic program that maximizes total overlap
+          across every line simultaneously, not a greedy guess from a handful of
+          points. A few mis-detected frames can't swing the result; the best fit
+          across thousands of candidate shifts wins.
+        </li>
+        <li>
+          <strong>It handles the things that actually break subtitles.</strong> A
+          single global shift (the whole file is early or late), and frame-rate
+          drift — it scans the common play-rate conversions
+          (23.976&nbsp;/&nbsp;24&nbsp;/&nbsp;25&nbsp;/&nbsp;29.97, e.g. the PAL
+          speed-up) and corrects the stretch as well as the offset. The same
+          engine can also do <em>piecewise</em> shifts that absorb ad-breaks or a
+          different cut (exposed through the command-line tool).
+        </li>
+        <li>
+          <strong>It is conservative when there's no evidence.</strong> Ties break
+          toward the smallest shift, so an ambiguous input lands on “barely moved”
+          rather than inventing a large bogus offset.
+        </li>
+        <li>
+          <strong>It is hard to crash.</strong> The core is memory-safe Rust with
+          no <code>unsafe</code>, uses saturating arithmetic throughout, and
+          tolerates pathological input (NaN/∞ samples, absurd sample rates) without
+          panicking. The algorithm is a clean-room implementation of the
+          well-studied overlap-maximization approach, and the core ships with a
+          full unit-test suite.
+        </li>
+      </ul>
+
+      <h2>Why it's fast</h2>
+      <ul>
+        <li>
+          <strong>It works on intervals, not samples.</strong> A two-hour film is
+          hundreds of millions of audio samples; voice-activity detection collapses
+          that to a few thousand speech intervals. The aligner only ever touches
+          those intervals and your subtitle's lines, so its cost scales with the
+          <em>number of subtitle lines</em>, not the length of the audio.
+        </li>
+        <li>
+          <strong>The detector is a single linear pass.</strong> Speech detection
+          is just framing the signal into 20&nbsp;ms windows, taking each window's
+          RMS energy, and keeping the windows louder than 1.5× the average — plain
+          arithmetic, one sweep over the samples, no FFT and no model to load.
+        </li>
+        <li>
+          <strong>The search is linear, not combinatorial.</strong> The aligner
+          tries a grid of candidate shifts (±60&nbsp;s in 20&nbsp;ms steps — about
+          six thousand of them), scoring each by a cheap interval-overlap sum. A
+          precomputed “best previous offset” turns each line into an O(1)
+          stay-or-switch decision, so the work is <em>lines&nbsp;×&nbsp;shifts</em>
+          rather than lines × shifts², even with piecewise alignment.
+        </li>
+        <li>
+          <strong>It runs as compiled WebAssembly.</strong> The detector and the
+          search execute at near-native speed inside the WASM sandbox — not
+          interpreted JavaScript — so the entire alignment is typically a matter of
+          milliseconds once the audio is decoded.
+        </li>
+        <li>
+          <strong>Nothing is uploaded.</strong> The slowest part of every other
+          online sync tool is sending a multi-hundred-megabyte video to a server
+          and waiting in a queue. Subomatic decodes and aligns in place, so the
+          only real cost is the browser's native decode — and there's no network
+          round-trip at all.
+        </li>
+      </ul>
+
+      <h2>The alignment, in a little more detail</h2>
+      <p>
+        Each input is a set of half-open time intervals in milliseconds. For a
+        candidate shift δ, a line's score is the total overlap between the
+        line moved by δ and the (merged, non-overlapping) reference intervals.
+        A dynamic program assigns every line an offset from the grid to maximize
+        the summed overlap, minus a <em>split penalty</em> charged whenever two
+        neighbouring lines take different offsets. With the penalty set to
+        infinity (the default in the web app) every line shares one offset — a pure
+        global shift; lower it and the program is free to break the file into a few
+        independently-shifted segments to absorb an ad-break or a re-cut. Wrapped
+        around that is the frame-rate scan: the same solve is run for each common
+        play-rate ratio, and the highest-scoring combination of stretch&nbsp;+
+        offset wins.
+      </p>
+
+      <footer class="colophon">
+        <a href="./">Open the app</a> ·
+        Open source (Apache-2.0) —
+        <a href="https://github.com/subomatic/subomatic">view the source on GitHub</a>.
+      </footer>
+      </div>
+    </main>
+  </body>
+</html>

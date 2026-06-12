@@ -1,0 +1,31 @@
+[package]
+name = "subomatic-desktop"
+version = "0.1.0"
+description = "Subomatic — native desktop app for automatic subtitle synchronization"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "subomatic_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The shared engine: parse/serialize + VAD + alignment. Native build here; the
+# exact same crate compiles to WASM for the web app. `earshot` gives the sharper
+# neural voice-activity detector (the recommended default in the UI).
+subomatic-core = { path = "../crates/subomatic-core", features = ["earshot"] }
+
+tauri = { version = "2", features = [] }
+# default-features off: the default rustls-tls pulls in `ring`, whose C build
+# script breaks under cargo-xwin. native-tls uses the OS TLS stack instead
+# (schannel on Windows, Security.framework on macOS) — nothing to cross-compile.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
+
+serde = { version = "1", features = ["derive"] }
+# Direct dep because `tauri::generate_context!` references it once a `plugins`
+# section exists in tauri.conf.json.
+serde_json = "1"

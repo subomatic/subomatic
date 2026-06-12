@@ -5,6 +5,10 @@
 # Generated wasm bundle for the web app (built with wasm-pack)
 /web/pkg
 
+# Tauri desktop: node deps + local-only signing config (real values, never commit)
+/node_modules
+scripts/release.env
+
 # Local Claude Code config — not part of the project
 CLAUDE.md
 .claude/
