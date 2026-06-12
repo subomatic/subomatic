@@ -73,7 +73,10 @@ echo ">> building macOS bundle (app + updater artifact)"
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
   "${MAC_SIGN_ENV[@]}" npx tauri build --bundles app)
 
-BUNDLE_DIR="${ROOT}/src-tauri/target/release/bundle"
+# subomatic's Cargo workspace is at the repo ROOT (src-tauri is a member), so
+# tauri/cargo emit artifacts to <root>/target — NOT src-tauri/target (which is
+# where marie/betterwheel, whose workspace lives inside src-tauri, put them).
+BUNDLE_DIR="${ROOT}/target/release/bundle"
 MAC_APP="${BUNDLE_DIR}/macos/Subomatic.app"
 MAC_TARGZ="${BUNDLE_DIR}/macos/Subomatic.app.tar.gz"
 [ -f "${MAC_TARGZ}.sig" ] || { echo "error: updater artifact sig missing — is createUpdaterArtifacts on?" >&2; exit 1; }
@@ -97,7 +100,7 @@ if [ "${NOTARIZE}" = "1" ]; then
 fi
 
 echo ">> generating latest.json"
-LATEST="${ROOT}/src-tauri/target/latest.json"
+LATEST="${ROOT}/target/latest.json"
 NOTES_JSON="$(node -p 'JSON.stringify(process.argv[1])' "${NOTES}")"
 cat > "${LATEST}" <<EOF
 {
