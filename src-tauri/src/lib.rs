@@ -206,6 +206,30 @@ fn parse(text: &str, format: &str, fps: f64) -> Result<Subtitle, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|_app| {
+            // On macOS, give the window a native translucent material so the
+            // desktop shows through behind the UI (the webview itself is
+            // transparent — see `tauri.conf.json` + the CSS). `Sidebar` is the
+            // light, "frosted" finish AppKit uses for source lists; it adapts to
+            // light/dark automatically. Non-macOS builds get a plain opaque window.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+                let window = _app
+                    .get_webview_window("main")
+                    .expect("main window must exist");
+                apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::Sidebar,
+                    Some(NSVisualEffectState::Active),
+                    None,
+                )
+                .expect("vibrancy is only supported on macOS");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![sync_to_reference, sync_to_audio])
         .run(tauri::generate_context!())
         .expect("error while running Subomatic desktop");
